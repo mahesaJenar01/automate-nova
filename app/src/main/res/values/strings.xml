@@ -1,0 +1,9 @@
+<resources>
+
+    <string name="app_name">Automate Nova</string>
+
+    <string name="accessibility_description">
+        Nova Automation Service
+    </string>
+
+</resources>
