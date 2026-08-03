@@ -57,4 +57,8 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview:1.6.8")
 
     debugImplementation("androidx.compose.ui:ui-tooling:1.6.8")
+
+    // Apache POI for reading Excel files
+    implementation("org.apache.poi:poi:5.2.5")
+    implementation("org.apache.poi:poi-ooxml:5.2.5")
 }

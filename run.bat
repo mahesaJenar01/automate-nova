@@ -12,8 +12,7 @@ echo.
 echo ===================================
 echo 2. Installing the App
 echo ===================================
-echo Uninstalling old version if exists...
-adb uninstall com.nova.automate
+echo Installing/Updating the App...
 adb install -r app\build\outputs\apk\debug\app-debug.apk
 if %errorlevel% neq 0 (
     echo [ERROR] Installation failed! Make sure your device is connected.

@@ -9,6 +9,8 @@ import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
 import com.nova.automate.core.*
 
+data class ProductItem(val code: String, val qty: String, val name: String, var price: Int = 0, var audited: Boolean = false)
+
 class UpdateDataWorkflow(service: AccessibilityService) : AutomationWorkflow(service) {
 
     companion object {
@@ -35,8 +37,14 @@ class UpdateDataWorkflow(service: AccessibilityService) : AutomationWorkflow(ser
         INPUT_QUANTITY,
         CLICKING_LANJUT,
         VALIDATING_SUMMARY,
+        AUDIT_SUMMARY_PAGE,
+        CLICKING_TAMBAH_PRODUK,
+        WAITING_FOR_SELLOUT_PAGE_AFTER_TAMBAH,
         GATHERING_SUMMARY_INFO,
         SCROLL_TO_SUBMIT,
+        WAIT_BEFORE_SUBMIT_SELLOUT,
+        CLICKING_SUBMIT_SELLOUT,
+        WAITING_FOR_JUMLAH_STRUK,
         INPUT_RECEIPT_COUNT,
         CLICK_SUBMIT_STRUK
     }
@@ -44,7 +52,8 @@ class UpdateDataWorkflow(service: AccessibilityService) : AutomationWorkflow(ser
     private var currentState = State.IDLE
     private var targetDateString: String = ""
     private val handler = Handler(Looper.getMainLooper())
-    private val productsToAdd = listOf(Pair("80277", "5"), Pair("80098", "3"))
+    private var searchRunnable: Runnable? = null
+    private var productsToAdd = mutableListOf<ProductItem>()
     private var currentProductIndex = 0
 
     override var isFinished: Boolean = false
@@ -53,6 +62,32 @@ class UpdateDataWorkflow(service: AccessibilityService) : AutomationWorkflow(ser
     override fun start() {
         isFinished = false
         targetDateString = getTargetDate(service)
+        productsToAdd.clear()
+        
+        val prefs = service.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
+        val jsonStr = prefs.getString("products_to_add", "[]") ?: "[]"
+        try {
+            val jsonArray = org.json.JSONArray(jsonStr)
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                val code = obj.getString("code")
+                val qty = obj.getString("qty")
+                val name = obj.optString("name", "Unknown Product")
+                productsToAdd.add(ProductItem(code, qty, name))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse products_to_add", e)
+        }
+
+        // Consume the queue: this run owns the list now, so it can never be replayed later.
+        prefs.edit().remove("products_to_add").apply()
+
+        if (productsToAdd.isEmpty()) {
+            Log.d(TAG, "No products to add. Stopping workflow.")
+            isFinished = true
+            return
+        }
+
         currentState = State.SEARCHING_HISTORI
         Log.d(TAG, "Starting UpdateDataWorkflow! Target Date: $targetDateString. Waiting 5s...")
         
@@ -163,37 +198,106 @@ class UpdateDataWorkflow(service: AccessibilityService) : AutomationWorkflow(ser
             }
             
             State.SEARCHING_UPDATE_DATA -> {
-                Log.d(TAG, "Searching for 'Update Data' button near the date...")
+                Log.d(TAG, "Searching for 'Update Data' button for $targetDateString...")
                 val dateNode = rootNode.findNodeByContentDescription(targetDateString)
                 val scrollNode = rootNode.findScrollView()
                 
                 if (dateNode != null) {
-                    val updateButton = dateNode.findNearbyNode("Update Data")
-                    var isButtonVisible = false
+                    val dateBounds = Rect()
+                    dateNode.getBoundsInScreen(dateBounds)
                     
-                    if (updateButton != null && scrollNode != null) {
-                        val updateBounds = Rect()
-                        val scrollBounds = Rect()
-                        updateButton.getBoundsInScreen(updateBounds)
-                        scrollNode.getBoundsInScreen(scrollBounds)
+                    // 1. Identify the 'Next Date' to determine if the current section is fully visible
+                    var nextDateTop = -1
+                    val allVisibleDates = mutableListOf<Pair<java.util.Date, Int>>()
+                    
+                    fun findDates(node: AccessibilityNodeInfo) {
+                        val desc = node.contentDescription?.toString()
+                        if (desc != null) {
+                            val parsed = parseIndonesianDate(desc)
+                            if (parsed != null) {
+                                val b = Rect()
+                                node.getBoundsInScreen(b)
+                                allVisibleDates.add(parsed to b.top)
+                            }
+                        }
+                        for (i in 0 until node.childCount) {
+                            val child = node.getChild(i)
+                            if (child != null) {
+                                findDates(child)
+                                child.recycle()
+                            }
+                        }
+                    }
+                    findDates(rootNode)
+                    
+                    val targetParsed = parseIndonesianDate(targetDateString)
+                    if (targetParsed != null) {
+                        // Find the first date that appears below our target date on the screen
+                        val sortedAfter = allVisibleDates
+                            .filter { it.second > dateBounds.top + 10 }
+                            .sortedBy { it.second }
                         
-                        if (updateBounds.top >= scrollBounds.top && updateBounds.bottom <= scrollBounds.bottom) {
-                            isButtonVisible = true
+                        if (sortedAfter.isNotEmpty()) {
+                            nextDateTop = sortedAfter.first().second
                         }
                     }
 
-                    if (updateButton != null && isButtonVisible && updateButton.isClickable) {
-                        if (updateButton.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                    val screenBounds = Rect()
+                    if (scrollNode != null) scrollNode.getBoundsInScreen(screenBounds)
+                    else rootNode.getBoundsInScreen(screenBounds)
+                    
+                    // 2. Search for the button within the target section
+                    // If nextDateTop exists, the section ends there. Otherwise, it goes to screen bottom.
+                    val bottomLimit = if (nextDateTop != -1) nextDateTop else screenBounds.bottom
+                    
+                    var updateButton: AccessibilityNodeInfo? = null
+                    fun findButtonInSection(node: AccessibilityNodeInfo) {
+                        val b = Rect()
+                        node.getBoundsInScreen(b)
+                        // Button must be below date top and above the next date (or screen bottom)
+                        if (b.top >= dateBounds.top - 10 && b.bottom <= bottomLimit + 10) {
+                            val d = node.contentDescription?.toString() ?: ""
+                            val t = node.text?.toString() ?: ""
+                            if (d.contains("Update Data", true) || t.contains("Update Data", true)) {
+                                updateButton = AccessibilityNodeInfo.obtain(node)
+                                return
+                            }
+                        }
+                        for (i in 0 until node.childCount) {
+                            val child = node.getChild(i)
+                            if (child != null) {
+                                findButtonInSection(child)
+                                child.recycle()
+                                if (updateButton != null) return
+                            }
+                        }
+                    }
+                    findButtonInSection(rootNode)
+
+                    if (updateButton != null) {
+                        var nodeToClick = updateButton
+                        while (nodeToClick != null && !nodeToClick.isClickable) {
+                            nodeToClick = nodeToClick.parent
+                        }
+                        if (nodeToClick != null && nodeToClick.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
                             Log.d(TAG, "SUCCESS! Clicked the 'Update Data' button.")
                             foundInCurrentStep = true
                             currentState = State.VALIDATING_DETAIL_SUMMARY_PAGE
-                        } else {
-                            Log.d(TAG, "Update Data button found but click failed.")
                         }
                     } else {
-                        Log.d(TAG, "Update Data button not fully visible or not found. Doing a small scroll...")
-                        if (scrollNode != null) {
-                            GestureHelper.performCustomScroll(service, scrollNode, 0.15f, 500L)
+                        // 3. No button found. Logic for Absence vs Scroll:
+                        if (nextDateTop != -1) {
+                            // The next date is visible, meaning the current date's section is COMPLETELY on screen.
+                            // If there's no button in a complete section, it's an absence.
+                            val actualHeight = nextDateTop - dateBounds.top
+                            Log.d(TAG, "Section for $targetDateString is complete. Height: $actualHeight. No button found. Marking ABSENCE.")
+                            markAbsenceAndRedirect(targetDateString)
+                        } else {
+                            // The next date isn't visible yet. The section might be clipped.
+                            Log.d(TAG, "Section for $targetDateString might be clipped (Next date not found). Scrolling...")
+                            if (scrollNode != null) {
+                                GestureHelper.performCustomScroll(service, scrollNode, 0.15f, 500L)
+                            }
                         }
                     }
                 } else {
@@ -361,33 +465,32 @@ class UpdateDataWorkflow(service: AccessibilityService) : AutomationWorkflow(ser
             }
             
             State.SEARCHING_PRODUCT -> {
+                var foundUnaudited = false
+                while(currentProductIndex < productsToAdd.size) {
+                    if (!productsToAdd[currentProductIndex].audited) {
+                        foundUnaudited = true
+                        break
+                    }
+                    currentProductIndex++
+                }
+
                 val currentProduct = productsToAdd.getOrNull(currentProductIndex)
-                if (currentProduct == null) {
+                if (currentProduct == null || !foundUnaudited) {
                     Log.d(TAG, "All products processed! Moving to CLICKING_LANJUT.")
                     currentState = State.CLICKING_LANJUT
                     triggerSearch()
                     return
                 }
                 
-                val code = currentProduct.first
+                val code = currentProduct.code
                 Log.d(TAG, "Searching product code: $code")
                 
-                val searchBox = if (currentProductIndex == 0) {
-                    rootNode.findNodeByHint("Cari nama produk")
-                } else {
-                    val prevCode = productsToAdd[currentProductIndex - 1].first
-                    rootNode.findNodeByText(prevCode) ?: rootNode.findNodeByHint("Cari nama produk")
-                }
+                val searchBox = rootNode.findNodeByClassName("android.widget.EditText") ?: rootNode.findNodeByHint("Cari nama produk")
                 
                 if (searchBox != null) {
                     searchBox.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                     handler.postDelayed({
-                        val currentBox = if (currentProductIndex == 0) {
-                            service.rootInActiveWindow?.findNodeByHint("Cari nama produk") ?: searchBox
-                        } else {
-                            val prevCode = productsToAdd[currentProductIndex - 1].first
-                            service.rootInActiveWindow?.findNodeByText(prevCode) ?: searchBox
-                        }
+                        val currentBox = service.rootInActiveWindow?.findNodeByClassName("android.widget.EditText") ?: searchBox
                         currentBox.typeTextOneByOne(code, handler) {
                             Log.d(TAG, "SUCCESS! Typed product code $code.")
                             currentState = State.WAITING_SEARCH_RESULT
@@ -406,7 +509,7 @@ class UpdateDataWorkflow(service: AccessibilityService) : AutomationWorkflow(ser
             }
 
             State.WAITING_SEARCH_RESULT -> {
-                val code = productsToAdd[currentProductIndex].first
+                val code = productsToAdd[currentProductIndex].code
                 val descToWait = "Hasil pencarian untuk \"$code\""
                 Log.d(TAG, "Waiting for search result: $descToWait")
                 
@@ -419,16 +522,95 @@ class UpdateDataWorkflow(service: AccessibilityService) : AutomationWorkflow(ser
             }
             
             State.INPUT_QUANTITY -> {
-                val code = productsToAdd[currentProductIndex].first
-                val qty = productsToAdd[currentProductIndex].second
+                val code = productsToAdd[currentProductIndex].code
+                val qty = productsToAdd[currentProductIndex].qty
                 Log.d(TAG, "Inputting quantity $qty for $code...")
                 
-                val qtyNode = rootNode.findNodeByText("0")
+                var qtyNode: AccessibilityNodeInfo? = null
+                fun findQtyBox(node: AccessibilityNodeInfo) {
+                    if (node.className == "android.widget.EditText") {
+                        val textStr = node.text?.toString() ?: ""
+                        val hintStr = node.hintText?.toString() ?: ""
+                        if (textStr != code && hintStr != "Cari nama produk") {
+                            qtyNode = AccessibilityNodeInfo.obtain(node)
+                        }
+                    }
+                    if (qtyNode != null) return
+                    for (i in 0 until node.childCount) {
+                        val child = node.getChild(i)
+                        if (child != null) {
+                            findQtyBox(child)
+                            child.recycle()
+                            if (qtyNode != null) return
+                        }
+                    }
+                }
+                findQtyBox(rootNode)
+                
                 if (qtyNode != null) {
+                    var extractedPrice = 0
+                    var parent = qtyNode.parent
+                    var depth = 0
+                    while (parent != null && depth < 5) {
+                        var priceStr = ""
+                        fun searchPrice(n: AccessibilityNodeInfo) {
+                            val desc = n.contentDescription?.toString()
+                            val text = n.text?.toString()
+                            if (desc != null && desc.startsWith("Rp ")) priceStr = desc
+                            else if (text != null && text.startsWith("Rp ")) priceStr = text
+                            if (priceStr.isNotEmpty()) return
+                            for (i in 0 until n.childCount) {
+                                val child = n.getChild(i)
+                                if (child != null) {
+                                    searchPrice(child)
+                                    child.recycle()
+                                    if (priceStr.isNotEmpty()) return
+                                }
+                            }
+                        }
+                        searchPrice(parent)
+                        if (priceStr.isNotEmpty()) {
+                            val cleanStr = priceStr.replace(Regex("[^0-9]"), "")
+                            if (cleanStr.isNotEmpty()) {
+                                extractedPrice = cleanStr.toInt()
+                                break
+                            }
+                        }
+                        val oldParent = parent
+                        parent = parent.parent
+                        oldParent.recycle()
+                        depth++
+                    }
+                    if (extractedPrice > 0) {
+                        Log.d(TAG, "SUCCESS! Extracted price: $extractedPrice")
+                        productsToAdd[currentProductIndex].price = extractedPrice
+                    } else {
+                        Log.d(TAG, "WARNING! Could not extract price.")
+                    }
+
                     qtyNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                     handler.postDelayed({
-                        val currentQtyNode = service.rootInActiveWindow?.findNodeByText("0") ?: qtyNode
-                        currentQtyNode.typeTextOneByOne(qty, handler) {
+                        var currentQtyNode: AccessibilityNodeInfo? = null
+                        fun findCurrentQty(n: AccessibilityNodeInfo) {
+                            if (n.className == "android.widget.EditText" && n.text?.toString() != code && n.hintText?.toString() != "Cari nama produk") {
+                                currentQtyNode = AccessibilityNodeInfo.obtain(n)
+                            }
+                            if (currentQtyNode != null) return
+                            for (i in 0 until n.childCount) {
+                                val c = n.getChild(i)
+                                if (c != null) {
+                                    findCurrentQty(c)
+                                    c.recycle()
+                                    if (currentQtyNode != null) return
+                                }
+                            }
+                        }
+                        if (service.rootInActiveWindow != null) {
+                            findCurrentQty(service.rootInActiveWindow!!)
+                        }
+                        
+                        val finalNode = currentQtyNode ?: qtyNode
+                        finalNode.typeTextOneByOne(qty, handler) {
                             Log.d(TAG, "SUCCESS! Typed quantity $qty for $code.")
                             currentProductIndex++
                             currentState = State.SEARCHING_PRODUCT
@@ -437,7 +619,7 @@ class UpdateDataWorkflow(service: AccessibilityService) : AutomationWorkflow(ser
                     }, 500)
                     currentState = State.TYPING_IN_PROGRESS
                 } else {
-                    Log.d(TAG, "EditText with text '0' not found. It might be that the text changed or hasn't rendered.")
+                    Log.d(TAG, "EditText for quantity not found. It might be that the page hasn't fully rendered.")
                 }
             }
             
@@ -459,7 +641,93 @@ class UpdateDataWorkflow(service: AccessibilityService) : AutomationWorkflow(ser
                 if (summaryNode != null) {
                     Log.d(TAG, "SUCCESS! Reached Summary page.")
                     foundInCurrentStep = true
-                    currentState = State.GATHERING_SUMMARY_INFO
+                    currentState = State.AUDIT_SUMMARY_PAGE
+                }
+            }
+
+            State.AUDIT_SUMMARY_PAGE -> {
+                Log.d(TAG, "Auditing Summary page...")
+                
+                var foundAnyEditText = false
+                fun scanNodeForProducts(node: AccessibilityNodeInfo) {
+                    if (node.className == "android.widget.EditText") {
+                        val qtyStr = node.text?.toString() ?: ""
+                        val hintStr = node.hintText?.toString() ?: ""
+                        if (hintStr.isNotEmpty()) {
+                            val code = hintStr.substringBefore("\n").trim()
+                            val product = productsToAdd.find { it.code == code && !it.audited }
+                            if (product != null) {
+                                if (product.qty == qtyStr) {
+                                    product.audited = true
+                                    Log.d(TAG, "SUCCESS! Audited product: $code")
+                                } else {
+                                    Log.d(TAG, "WARNING! Quantity mismatch for $code. Expected ${product.qty}, found $qtyStr. Will fix via Tambah Produk.")
+                                }
+                            }
+                        }
+                        foundAnyEditText = true
+                    }
+                    for (i in 0 until node.childCount) {
+                        val child = node.getChild(i)
+                        if (child != null) {
+                            scanNodeForProducts(child)
+                            child.recycle()
+                        }
+                    }
+                }
+                scanNodeForProducts(rootNode)
+                
+                val submitNode = rootNode.findNodeByContentDescription("Submit Sellout") ?: rootNode.findNodeByText("Submit Sellout")
+                if (submitNode != null) {
+                    Log.d(TAG, "Submit Sellout is visible. Finished scanning.")
+                    val unaudited = productsToAdd.filter { !it.audited }
+                    if (unaudited.isEmpty()) {
+                        Log.d(TAG, "All products audited successfully! Proceeding to GATHERING_SUMMARY_INFO.")
+                        currentState = State.GATHERING_SUMMARY_INFO
+                        triggerSearch()
+                    } else {
+                        Log.d(TAG, "Audit failed! Missing products: ${unaudited.map { it.code }}. Clicking Tambah Produk.")
+                        currentState = State.CLICKING_TAMBAH_PRODUK
+                        triggerSearch()
+                    }
+                } else {
+                    Log.d(TAG, "Submit Sellout not visible yet. Scrolling down smoothly and slowly...")
+                    val scrollNode = rootNode.findNodeByClassName("android.widget.ScrollView") ?: rootNode.findScrollView() ?: rootNode
+                    if (scrollNode != null) {
+                        GestureHelper.performCustomScroll(service, scrollNode, 0.15f, 1000L, true)
+                    }
+                }
+            }
+
+            State.CLICKING_TAMBAH_PRODUK -> {
+                Log.d(TAG, "Looking for Tambah Produk button...")
+                val tambahNode = rootNode.findNodeByContentDescOrText("Tambah Produk")
+                if (tambahNode != null) {
+                    var nodeToClick = tambahNode
+                    while (nodeToClick != null && !nodeToClick.isClickable) {
+                        nodeToClick = nodeToClick.parent
+                    }
+                    if (nodeToClick != null && nodeToClick.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                        Log.d(TAG, "SUCCESS! Clicked Tambah Produk.")
+                        currentProductIndex = 0 // Reset for next iteration
+                        currentState = State.WAITING_FOR_SELLOUT_PAGE_AFTER_TAMBAH
+                    }
+                } else {
+                    Log.d(TAG, "Tambah Produk not found, scrolling up smoothly to find it...")
+                    val scrollNode = rootNode.findNodeByClassName("android.widget.ScrollView") ?: rootNode.findScrollView() ?: rootNode
+                    if (scrollNode != null) {
+                        GestureHelper.performCustomScroll(service, scrollNode, 0.15f, 1000L, false)
+                    }
+                }
+            }
+
+            State.WAITING_FOR_SELLOUT_PAGE_AFTER_TAMBAH -> {
+                Log.d(TAG, "Waiting for Sellout page (Cari nama produk) to appear...")
+                val searchBox = rootNode.findNodeByClassName("android.widget.EditText") ?: rootNode.findNodeByHint("Cari nama produk")
+                if (searchBox != null) {
+                    Log.d(TAG, "SUCCESS! Reached Sellout page again.")
+                    currentState = State.SEARCHING_PRODUCT
+                    triggerSearch()
                 }
             }
 
@@ -490,25 +758,80 @@ class UpdateDataWorkflow(service: AccessibilityService) : AutomationWorkflow(ser
                     foundInCurrentStep = true
                     currentState = State.SCROLL_TO_SUBMIT
                 } else {
-                    Log.d(TAG, "Could not find Summary Info. Still searching...")
+                    Log.d(TAG, "Could not find Summary Info. Scrolling down smoothly...")
+                    val scrollNode = rootNode.findNodeByClassName("android.widget.ScrollView") ?: rootNode.findScrollView() ?: rootNode
+                    if (scrollNode != null) {
+                        GestureHelper.performCustomScroll(service, scrollNode, 0.15f, 1000L, true)
+                    }
                 }
             }
             
             State.SCROLL_TO_SUBMIT -> {
                 Log.d(TAG, "Searching for Submit Sellout button...")
-                val submitNode = rootNode.findNodeByContentDescription("Submit Sellout")
+                val submitNode = rootNode.findNodeByContentDescription("Submit Sellout") ?: rootNode.findNodeByText("Submit Sellout")
+                var found = false
+                
                 if (submitNode != null) {
-                    if (submitNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                    var nodeToClick = submitNode
+                    while (nodeToClick != null && !nodeToClick.isClickable) {
+                        nodeToClick = nodeToClick.parent
+                    }
+                    if (nodeToClick != null) {
+                        Log.d(TAG, "SUCCESS! Found Submit Sellout. Waiting 2 seconds before clicking...")
+                        foundInCurrentStep = true
+                        currentState = State.WAIT_BEFORE_SUBMIT_SELLOUT
+                        handler.postDelayed({
+                            if (currentState == State.WAIT_BEFORE_SUBMIT_SELLOUT) {
+                                currentState = State.CLICKING_SUBMIT_SELLOUT
+                                triggerSearch()
+                            }
+                        }, 2000)
+                        found = true
+                        return // Exit to let the delay handle the next step
+                    }
+                }
+                
+                if (!found) {
+                    Log.d(TAG, "Submit Sellout not found or not clickable. Scrolling down smoothly...")
+                    val scrollNode = rootNode.findNodeByClassName("android.widget.ScrollView") ?: rootNode.findScrollView() ?: rootNode
+                    if (scrollNode != null) {
+                        GestureHelper.performCustomScroll(service, scrollNode, 0.15f, 1000L, true)
+                    }
+                }
+            }
+
+            State.WAIT_BEFORE_SUBMIT_SELLOUT -> {
+                Log.d(TAG, "Waiting 2s before clicking Submit Sellout...")
+                // No-op
+            }
+
+            State.CLICKING_SUBMIT_SELLOUT -> {
+                Log.d(TAG, "Clicking Submit Sellout button...")
+                val submitNode = rootNode.findNodeByContentDescription("Submit Sellout") ?: rootNode.findNodeByText("Submit Sellout")
+                if (submitNode != null) {
+                    var nodeToClick = submitNode
+                    while (nodeToClick != null && !nodeToClick.isClickable) {
+                        nodeToClick = nodeToClick.parent
+                    }
+                    if (nodeToClick != null && nodeToClick.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
                         Log.d(TAG, "SUCCESS! Clicked Submit Sellout.")
                         foundInCurrentStep = true
-                        currentState = State.INPUT_RECEIPT_COUNT
+                        currentState = State.WAITING_FOR_JUMLAH_STRUK
+                    } else {
+                        Log.d(TAG, "Found Submit Sellout but couldn't click it.")
                     }
                 } else {
-                    Log.d(TAG, "Submit Sellout not found. Scrolling down...")
-                    val scrollNode = rootNode.findScrollView()
-                    if (scrollNode != null) {
-                        GestureHelper.performCustomScroll(service, scrollNode, 0.40f, 800L, true)
-                    }
+                    Log.d(TAG, "Submit Sellout not found when trying to click it.")
+                }
+            }
+
+            State.WAITING_FOR_JUMLAH_STRUK -> {
+                Log.d(TAG, "Waiting for 'Jumlah Struk' to appear...")
+                val jumlahStrukNode = rootNode.findNodeByContentDescription("Jumlah Struk") ?: rootNode.findNodeByText("Jumlah Struk")
+                if (jumlahStrukNode != null) {
+                    Log.d(TAG, "SUCCESS! 'Jumlah Struk' appeared.")
+                    foundInCurrentStep = true
+                    currentState = State.INPUT_RECEIPT_COUNT
                 }
             }
 
@@ -530,13 +853,52 @@ class UpdateDataWorkflow(service: AccessibilityService) : AutomationWorkflow(ser
             }
             
             State.CLICK_SUBMIT_STRUK -> {
-                Log.d(TAG, "Ready to click 'Submit Struk', but it is commented out for now. WORKFLOW COMPLETE.")
-                /*
+                Log.d(TAG, "Clicking 'Submit Struk'. WORKFLOW COMPLETE.")
                 val submitStruk = rootNode.findNodeByContentDescription("Submit Struk")
                 if (submitStruk != null) {
                     submitStruk.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                 }
-                */
+                
+                // --- COMPILE AND SAVE LAPORAN DATA ---
+                val prefs = service.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
+                val existingData = prefs.getString("laporan_data", "[]") ?: "[]"
+                val jsonArray = org.json.JSONArray(existingData)
+                
+                var totalQty = 0
+                var totalPrice = 0
+                val itemsArray = org.json.JSONArray()
+                for (item in productsToAdd) {
+                    val q = item.qty.toIntOrNull() ?: 0
+                    val p = item.price
+                    totalQty += q
+                    totalPrice += (q * p)
+                    
+                    val itemObj = org.json.JSONObject()
+                    itemObj.put("code", item.code)
+                    itemObj.put("name", item.name)
+                    itemObj.put("qty", item.qty)
+                    itemObj.put("price", p)
+                    itemObj.put("totalPrice", q * p)
+                    itemsArray.put(itemObj)
+                }
+                
+                val reportObj = org.json.JSONObject()
+                reportObj.put("date", targetDateString)
+                reportObj.put("totalQty", totalQty)
+                reportObj.put("totalPrice", totalPrice)
+                reportObj.put("items", itemsArray)
+                
+                jsonArray.put(reportObj)
+                prefs.edit().putString("laporan_data", jsonArray.toString()).apply()
+                // --- END COMPILE ---
+                
+                // --- LAUNCH AUTOMATE NOVA ---
+                val intent = service.packageManager.getLaunchIntentForPackage("com.nova.automate")
+                if (intent != null) {
+                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                    service.startActivity(intent)
+                }
+
                 currentState = State.IDLE
                 isFinished = true
             }
@@ -551,7 +913,13 @@ class UpdateDataWorkflow(service: AccessibilityService) : AutomationWorkflow(ser
                 State.SEARCHING_OMG_RADIO,
                 State.TYPING_IN_PROGRESS,
                 State.WAITING_FOR_PRODUCTS_PAGE,
-                State.WAITING_SEARCH_RESULT
+                State.WAITING_SEARCH_RESULT,
+                State.WAIT_BEFORE_SUBMIT_SELLOUT,
+                State.WAIT_BEFORE_SUBMIT_SELLOUT,
+                State.WAITING_FOR_JUMLAH_STRUK,
+                State.AUDIT_SUMMARY_PAGE,
+                State.GATHERING_SUMMARY_INFO,
+                State.SCROLL_TO_SUBMIT
             )
             if (omittedStates.contains(currentState)) {
                 Log.d(TAG, "Still searching/scrolling/waiting, omitted screen dump to avoid log spam.")
@@ -566,6 +934,36 @@ class UpdateDataWorkflow(service: AccessibilityService) : AutomationWorkflow(ser
             Log.d(TAG, "Waiting before next action...")
             scheduleNextSearch()
         }
+    }
+
+    private fun markAbsenceAndRedirect(date: String) {
+        val prefs = service.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
+        val absenceJson = prefs.getString("absence_dates", "[]") ?: "[]"
+        try {
+            val array = org.json.JSONArray(absenceJson)
+            var exists = false
+            for (i in 0 until array.length()) {
+                if (array.getString(i) == date) {
+                    exists = true
+                    break
+                }
+            }
+            if (!exists) {
+                array.put(date)
+                prefs.edit().putString("absence_dates", array.toString()).apply()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save absence date", e)
+        }
+
+        val intent = service.packageManager.getLaunchIntentForPackage("com.nova.automate")
+        if (intent != null) {
+            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            service.startActivity(intent)
+        }
+        
+        currentState = State.IDLE
+        isFinished = true
     }
 
     private fun extractVisibleDates(node: AccessibilityNodeInfo, dateList: MutableList<java.util.Date>) {
@@ -594,14 +992,24 @@ class UpdateDataWorkflow(service: AccessibilityService) : AutomationWorkflow(ser
     }
 
     private fun scheduleNextSearch() {
-        handler.postDelayed({
-            triggerSearch()
-        }, 2000)
+        val delay = when (currentState) {
+            State.AUDIT_SUMMARY_PAGE,
+            State.CLICKING_TAMBAH_PRODUK,
+            State.GATHERING_SUMMARY_INFO,
+            State.SCROLL_TO_SUBMIT -> 1500L
+            else -> 2000L
+        }
+        searchRunnable?.let { handler.removeCallbacks(it) }
+        searchRunnable = Runnable {
+            if (!isFinished) triggerSearch()
+        }
+        handler.postDelayed(searchRunnable!!, delay)
     }
 
     override fun cancel() {
         currentState = State.IDLE
         isFinished = true
+        searchRunnable?.let { handler.removeCallbacks(it) }
         handler.removeCallbacksAndMessages(null)
     }
 }

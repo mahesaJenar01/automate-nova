@@ -163,6 +163,24 @@ fun AccessibilityNodeInfo.findNearbyNode(target: String): AccessibilityNodeInfo?
 }
 
 /**
+ * Searches for a node whose exact className matches [targetClassName].
+ */
+fun AccessibilityNodeInfo.findNodeByClassName(targetClassName: String): AccessibilityNodeInfo? {
+    if (this.className?.toString() == targetClassName) {
+        return AccessibilityNodeInfo.obtain(this)
+    }
+    for (i in 0 until this.childCount) {
+        val child = this.getChild(i)
+        if (child != null) {
+            val result = child.findNodeByClassName(targetClassName)
+            child.recycle()
+            if (result != null) return result
+        }
+    }
+    return null
+}
+
+/**
  * Finds a scrollable view.
  */
 fun AccessibilityNodeInfo.findScrollView(): AccessibilityNodeInfo? {
