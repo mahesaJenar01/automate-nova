@@ -1,0 +1,17 @@
+<resources>
+
+    <!--
+        Window chrome for the app. Colours here mirror NovaTheme in Theme.kt:
+        background #F6F6FB, primary #4F46E5. Keep the two in sync.
+    -->
+    <style name="Theme.AutomateNova" parent="@android:style/Theme.Material.Light.NoActionBar">
+
+        <item name="android:windowBackground">#F6F6FB</item>
+
+        <item name="android:statusBarColor">#F6F6FB</item>
+
+        <item name="android:windowLightStatusBar">true</item>
+
+    </style>
+
+</resources>

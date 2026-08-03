@@ -1,12 +1,31 @@
 package com.nova.automate
 
 import android.content.Context
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -80,62 +99,105 @@ fun LaporanListScreen(onNavigateBack: () -> Unit, onNavigateToDetail: (LaporanRe
     val reports = remember { getLaporanData(context) }
     var currentPage by remember { mutableStateOf(0) }
     val itemsPerPage = 10
-    
+
     val totalPages = (reports.size + itemsPerPage - 1) / itemsPerPage
     val currentReports = reports.drop(currentPage * itemsPerPage).take(itemsPerPage)
 
-    Column(modifier = Modifier.fillMaxSize().systemBarsPadding()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Button(onClick = onNavigateBack) {
-                Text("Back")
-            }
-            Spacer(modifier = Modifier.width(16.dp))
-            Text("Daftar Laporan", style = MaterialTheme.typography.titleLarge)
-        }
-        Divider()
-        
+    NovaScreen {
+        NovaHeader(
+            title = "Laporan",
+            subtitle = "${reports.size} laporan tersimpan",
+            onBack = onNavigateBack
+        )
+
         if (reports.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Belum ada laporan.")
-            }
+            EmptyState(
+                modifier = Modifier.weight(1f),
+                icon = Icons.Default.List,
+                title = "Belum ada laporan",
+                message = "Laporan tersimpan otomatis setiap kali automation selesai mengirim sellout."
+            )
         } else {
-            LazyColumn(modifier = Modifier.weight(1f)) {
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(20.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 items(currentReports) { report ->
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onNavigateToDetail(report) }
-                            .padding(16.dp)
+                    NovaCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = { onNavigateToDetail(report) }
                     ) {
-                        Text(text = "Laporan ${report.date}", style = MaterialTheme.typography.bodyLarge)
-                        Text(text = "Total Item: ${report.totalQty} | Total Harga: ${formatRupiah(report.totalPrice)}", 
-                             style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
-                        Divider(modifier = Modifier.padding(top = 8.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconBadge(
+                                icon = Icons.Default.CheckCircle,
+                                container = MaterialTheme.colorScheme.secondaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = report.date,
+                                    style = MaterialTheme.typography.titleSmall
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Pill(text = "${report.totalQty} item")
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = formatRupiah(report.totalPrice),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowRight,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.outline
+                            )
+                        }
                     }
                 }
             }
-            
+
             if (totalPages > 1) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Button(
-                        onClick = { if (currentPage > 0) currentPage-- },
-                        enabled = currentPage > 0
+                BottomBar {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Previous")
-                    }
-                    Text("Page ${currentPage + 1} of $totalPages")
-                    Button(
-                        onClick = { if (currentPage < totalPages - 1) currentPage++ },
-                        enabled = currentPage < totalPages - 1
-                    ) {
-                        Text("Next")
+                        TextButton(
+                            onClick = { if (currentPage > 0) currentPage-- },
+                            enabled = currentPage > 0
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowLeft,
+                                contentDescription = null
+                            )
+                            Text("Sebelumnya")
+                        }
+                        Text(
+                            text = "${currentPage + 1} / $totalPages",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        TextButton(
+                            onClick = { if (currentPage < totalPages - 1) currentPage++ },
+                            enabled = currentPage < totalPages - 1
+                        ) {
+                            Text("Berikutnya")
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowRight,
+                                contentDescription = null
+                            )
+                        }
                     }
                 }
             }
@@ -145,46 +207,62 @@ fun LaporanListScreen(onNavigateBack: () -> Unit, onNavigateToDetail: (LaporanRe
 
 @Composable
 fun LaporanDetailScreen(report: LaporanReport, onNavigateBack: () -> Unit) {
-    Column(modifier = Modifier.fillMaxSize().systemBarsPadding()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
+    NovaScreen {
+        NovaHeader(
+            title = "Detail Laporan",
+            subtitle = report.date,
+            onBack = onNavigateBack
+        )
+
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(20.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Button(onClick = onNavigateBack) {
-                Text("Back")
-            }
-            Spacer(modifier = Modifier.width(16.dp))
-            Text("Laporan ${report.date}", style = MaterialTheme.typography.titleLarge)
-        }
-        Divider()
-        
-        LazyColumn(modifier = Modifier.weight(1f).padding(16.dp)) {
             items(report.items) { item ->
-                Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-                    Text(text = item.name, style = MaterialTheme.typography.bodyLarge)
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(text = "Qty: ${item.qty} x ${formatRupiah(item.price)}", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
-                        Text(text = formatRupiah(item.totalPrice), style = MaterialTheme.typography.bodyLarge)
+                NovaCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        Text(
+                            text = item.name,
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "${item.qty} x ${formatRupiah(item.price)}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = formatRupiah(item.totalPrice),
+                                style = MaterialTheme.typography.titleSmall
+                            )
+                        }
                     }
-                    Divider(modifier = Modifier.padding(top = 8.dp))
                 }
             }
         }
-        
-        Card(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("Ringkasan", style = MaterialTheme.typography.titleMedium)
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Total Kuantitas:")
-                    Text(text = report.totalQty.toString())
-                }
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Total Harga:")
-                    Text(text = formatRupiah(report.totalPrice), style = MaterialTheme.typography.titleMedium)
+
+        BottomBar {
+            NovaCard(
+                modifier = Modifier.fillMaxWidth(),
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                borderColor = Color.Transparent
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    SectionLabel("Ringkasan")
+                    Spacer(modifier = Modifier.height(10.dp))
+                    KeyValueRow("Total kuantitas", report.totalQty.toString())
+                    Spacer(modifier = Modifier.height(6.dp))
+                    KeyValueRow("Total harga", formatRupiah(report.totalPrice), emphasis = true)
                 }
             }
         }

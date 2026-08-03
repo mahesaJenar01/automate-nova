@@ -4,26 +4,50 @@ import android.app.DatePickerDialog
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.provider.Settings
 import android.text.TextUtils
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,28 +57,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.nova.automate.service.NovaAccessibilityService
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.Divider
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.width
-import androidx.compose.ui.graphics.Color
-import org.json.JSONObject
-import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import android.provider.OpenableColumns
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.withContext
 
 enum class AppScreen {
     Home,
@@ -70,7 +78,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         setContent {
-            MaterialTheme {
+            NovaTheme {
                 val context = LocalContext.current
                 var isServiceEnabled by remember { mutableStateOf(checkServiceEnabled(context)) }
                 val sharedPreferences = context.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
@@ -99,7 +107,7 @@ class MainActivity : ComponentActivity() {
                 var currentScreen by remember { mutableStateOf(AppScreen.Home) }
                 var extractedData by remember { mutableStateOf(emptyList<ProcessedItem>()) }
                 var selectedReport by remember { mutableStateOf<LaporanReport?>(null) }
-                
+
                 var selectedDate by remember { mutableStateOf(sharedPreferences.getString("target_date", "Belum ada tanggal") ?: "Belum ada tanggal") }
 
                 val calendar = Calendar.getInstance()
@@ -110,7 +118,7 @@ class MainActivity : ComponentActivity() {
                         selectedCalendar.set(year, month, dayOfMonth)
                         val format = SimpleDateFormat("EEEE, dd MMMM yyyy", Locale("id", "ID"))
                         val formattedDate = format.format(selectedCalendar.time)
-                        
+
                         selectedDate = formattedDate
                         sharedPreferences.edit().putString("target_date", formattedDate).apply()
                     },
@@ -141,6 +149,7 @@ class MainActivity : ComponentActivity() {
                 if (runMessage != null) {
                     AlertDialog(
                         onDismissRequest = { runMessage = null },
+                        icon = { Icon(Icons.Default.Info, contentDescription = null) },
                         title = { Text("Automation Berhenti") },
                         text = { Text(runMessage!!) },
                         confirmButton = {
@@ -154,6 +163,7 @@ class MainActivity : ComponentActivity() {
                 when (currentScreen) {
                     AppScreen.Home -> MainScreen(
                         selectedDate = selectedDate,
+                        isServiceEnabled = isServiceEnabled,
                         datePickerDialog = datePickerDialog,
                         onNavigateToProducts = { currentScreen = AppScreen.ProductList },
                         onNavigateToLaporan = { currentScreen = AppScreen.LaporanList },
@@ -230,13 +240,13 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainScreen(
     selectedDate: String,
+    isServiceEnabled: Boolean,
     datePickerDialog: DatePickerDialog,
     onNavigateToProducts: () -> Unit,
     onNavigateToLaporan: () -> Unit,
     onDataExtracted: (List<ProcessedItem>) -> Unit
 ) {
     val context = LocalContext.current
-    val sharedPreferences = context.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
 
     val scope = rememberCoroutineScope()
     var showMismatchDialog by remember { mutableStateOf(false) }
@@ -244,8 +254,9 @@ fun MainScreen(
     if (showMismatchDialog) {
         AlertDialog(
             onDismissRequest = { showMismatchDialog = false },
-            title = { Text("Peringatan") },
-            text = { Text("Tanggal files berbeda dengan tanggal yang dipilih.") },
+            icon = { Icon(Icons.Default.Warning, contentDescription = null) },
+            title = { Text("Tanggal Tidak Cocok") },
+            text = { Text("Tanggal pada nama file berbeda dengan tanggal yang dipilih.") },
             confirmButton = {
                 TextButton(onClick = { showMismatchDialog = false }) {
                     Text("Okay")
@@ -260,7 +271,7 @@ fun MainScreen(
             if (uri != null) {
                 val expectedDateStr = selectedDate.substringAfter(",").trim().lowercase()
                 val fileName = getFileName(context, uri).lowercase()
-                
+
                 val dateParts = expectedDateStr.split(" ").filter { it.isNotBlank() }
                 val monthMap = mapOf(
                     "januari" to listOf("01", "1", "jan"),
@@ -308,48 +319,98 @@ fun MainScreen(
         }
     )
 
-    Column(
-        modifier = Modifier.fillMaxSize().systemBarsPadding(),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text("Automate Nova Ready", style = MaterialTheme.typography.headlineMedium)
-        
-        Spacer(modifier = Modifier.height(16.dp))
+    val hasDate = selectedDate != "Belum ada tanggal"
 
-        Text("Target Tanggal: $selectedDate", style = MaterialTheme.typography.bodyLarge)
-        
-        Spacer(modifier = Modifier.height(8.dp))
+    NovaScreen {
+        NovaHeader(
+            title = "Automate Nova",
+            subtitle = "Input sellout otomatis ke Nova App"
+        )
 
-        Button(onClick = { datePickerDialog.show() }) {
-            Text("Pilih Tanggal")
-        }
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+        ) {
+            NovaCard(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconBadge(Icons.Default.DateRange)
+                        Spacer(modifier = Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            SectionLabel("Target tanggal")
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = selectedDate,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = if (hasDate) MaterialTheme.colorScheme.onSurface
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedButton(
+                        onClick = { datePickerDialog.show() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(if (hasDate) "Ubah Tanggal" else "Pilih Tanggal")
+                    }
+                }
+            }
 
-        Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
-        // Run button moved to ExtractedDataScreen
-
-        Button(onClick = onNavigateToProducts) {
-            Text("Kode Produk")
-        }
-        
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Button(onClick = {
-            filePickerLauncher.launch(
-                arrayOf(
-                    "application/vnd.ms-excel",
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            Button(
+                onClick = {
+                    filePickerLauncher.launch(
+                        arrayOf(
+                            "application/vnd.ms-excel",
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+                    )
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+            ) {
+                Icon(
+                    Icons.Default.Add,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
                 )
-            )
-        }) {
-            Text("Upload File")
-        }
-        
-        Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.width(10.dp))
+                Text("Upload File Excel", style = MaterialTheme.typography.labelLarge)
+            }
 
-        Button(onClick = onNavigateToLaporan) {
-            Text("Laporan")
+            Spacer(modifier = Modifier.height(28.dp))
+
+            SectionLabel("Lainnya")
+            Spacer(modifier = Modifier.height(10.dp))
+
+            MenuCard(
+                icon = Icons.Default.ShoppingCart,
+                title = "Kode Produk",
+                subtitle = "Daftar kode produk yang tersimpan",
+                onClick = onNavigateToProducts
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            MenuCard(
+                icon = Icons.Default.List,
+                title = "Laporan",
+                subtitle = "Riwayat sellout yang sudah dikirim",
+                onClick = onNavigateToLaporan
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+        }
+
+        Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
+            StatusDot(
+                active = isServiceEnabled,
+                label = if (isServiceEnabled) "Accessibility service aktif"
+                else "Accessibility service belum aktif"
+            )
         }
     }
 }
@@ -359,24 +420,47 @@ fun ProductListScreen(onNavigateBack: () -> Unit) {
     val context = LocalContext.current
     val products = remember { ProductDatabaseManager.getProducts(context) }
 
-    Column(modifier = Modifier.fillMaxSize().systemBarsPadding()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Button(onClick = onNavigateBack) {
-                Text("Back")
-            }
-            Spacer(modifier = Modifier.width(16.dp))
-            Text("Daftar Kode Produk", style = MaterialTheme.typography.titleLarge)
-        }
-        Divider()
-        LazyColumn(modifier = Modifier.fillMaxSize()) {
-            items(products.toList()) { (name, code) ->
-                Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
-                    Text(text = name, style = MaterialTheme.typography.bodyLarge)
-                    Text(text = "Kode: $code", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
-                    Divider(modifier = Modifier.padding(top = 8.dp))
+    NovaScreen {
+        NovaHeader(
+            title = "Kode Produk",
+            subtitle = "${products.size} produk tersimpan",
+            onBack = onNavigateBack
+        )
+
+        if (products.isEmpty()) {
+            EmptyState(
+                modifier = Modifier.weight(1f),
+                icon = Icons.Default.ShoppingCart,
+                title = "Belum ada kode produk",
+                message = "Kode tersimpan otomatis setiap kali kamu mengisinya di halaman Data Uploaded."
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(20.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                items(products.toList()) { (name, code) ->
+                    NovaCard(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = name,
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Pill(
+                                text = code,
+                                container = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
                 }
             }
         }
