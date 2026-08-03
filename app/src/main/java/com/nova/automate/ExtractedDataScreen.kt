@@ -35,8 +35,13 @@ import androidx.compose.foundation.layout.Arrangement
 
 @Composable
 fun ExtractedDataScreen(
-    items: List<ProcessedItem>, 
+    items: List<ProcessedItem>,
     isServiceEnabled: Boolean,
+    dataDate: String,
+    runTargetDate: String,
+    isDateOverridden: Boolean,
+    onPickOtherDate: () -> Unit,
+    onResetDate: () -> Unit,
     onNavigateBack: () -> Unit,
     onRunAutomation: (List<ProcessedItem>) -> Unit,
     onEnableService: () -> Unit
@@ -160,8 +165,33 @@ fun ExtractedDataScreen(
             }
         }
         Divider()
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
+            Text(
+                text = "Data tanggal: $dataDate",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.Gray
+            )
+            Text(
+                text = "Input ke tanggal: $runTargetDate",
+                style = MaterialTheme.typography.bodyLarge
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Button(onClick = onPickOtherDate) {
+                    Text("Input in Other Date")
+                }
+                if (isDateOverridden) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    TextButton(onClick = onResetDate) {
+                        Text("Reset")
+                    }
+                }
+            }
+        }
         Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
             horizontalArrangement = Arrangement.Center
         ) {
             if (isServiceEnabled) {

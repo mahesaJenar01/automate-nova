@@ -74,12 +74,20 @@ class MainActivity : ComponentActivity() {
                 val context = LocalContext.current
                 var isServiceEnabled by remember { mutableStateOf(checkServiceEnabled(context)) }
                 val sharedPreferences = context.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
-                
+                var runMessage by remember { mutableStateOf<String?>(null) }
+
                 val lifecycleOwner = LocalLifecycleOwner.current
                 DisposableEffect(lifecycleOwner) {
                     val observer = LifecycleEventObserver { _, event ->
                         if (event == Lifecycle.Event.ON_RESUME) {
                             isServiceEnabled = checkServiceEnabled(context)
+
+                            // The workflow leaves a note here when it stops before submitting.
+                            val message = sharedPreferences.getString("last_run_message", null)
+                            if (message != null) {
+                                runMessage = message
+                                sharedPreferences.edit().remove("last_run_message").apply()
+                            }
                         }
                     }
                     lifecycleOwner.lifecycle.addObserver(observer)
@@ -111,23 +119,33 @@ class MainActivity : ComponentActivity() {
                     calendar.get(Calendar.DAY_OF_MONTH)
                 )
 
-                var showAbsenceDialog by remember { mutableStateOf(false) }
-                if (showAbsenceDialog) {
+                // The day the automation writes into. Null means "same day as the uploaded data".
+                var overrideDate by remember { mutableStateOf<String?>(null) }
+                val runTargetDate = overrideDate ?: selectedDate
+
+                val runTargetCalendar = Calendar.getInstance()
+                parseIndonesianDate(runTargetDate)?.let { runTargetCalendar.time = it }
+                val otherDatePickerDialog = DatePickerDialog(
+                    context,
+                    { _, year, month, dayOfMonth ->
+                        val pickedCalendar = Calendar.getInstance()
+                        pickedCalendar.set(year, month, dayOfMonth)
+                        val format = SimpleDateFormat("EEEE, dd MMMM yyyy", Locale("id", "ID"))
+                        overrideDate = format.format(pickedCalendar.time)
+                    },
+                    runTargetCalendar.get(Calendar.YEAR),
+                    runTargetCalendar.get(Calendar.MONTH),
+                    runTargetCalendar.get(Calendar.DAY_OF_MONTH)
+                )
+
+                if (runMessage != null) {
                     AlertDialog(
-                        onDismissRequest = { showAbsenceDialog = false },
-                        title = { Text("Peringatan Absen") },
-                        text = { Text("Tanggal yang Anda pilih ($selectedDate) telah terdeteksi sebagai hari libur/absen di Nova App.\n\nJika Anda tetap ingin memasukkan data ini ke tanggal lain, silakan ganti tanggal yang dipilih terlebih dahulu.") },
+                        onDismissRequest = { runMessage = null },
+                        title = { Text("Automation Berhenti") },
+                        text = { Text(runMessage!!) },
                         confirmButton = {
-                            TextButton(onClick = { 
-                                showAbsenceDialog = false
-                                datePickerDialog.show()
-                            }) {
-                                Text("Ganti Tanggal")
-                            }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = { showAbsenceDialog = false }) {
-                                Text("Tutup")
+                            TextButton(onClick = { runMessage = null }) {
+                                Text("Okay")
                             }
                         }
                     )
@@ -141,6 +159,7 @@ class MainActivity : ComponentActivity() {
                         onNavigateToLaporan = { currentScreen = AppScreen.LaporanList },
                         onDataExtracted = { data ->
                             extractedData = data
+                            overrideDate = null
                             currentScreen = AppScreen.ExtractedData
                         }
                     )
@@ -148,50 +167,41 @@ class MainActivity : ComponentActivity() {
                     AppScreen.ExtractedData -> ExtractedDataScreen(
                         items = extractedData,
                         isServiceEnabled = isServiceEnabled,
+                        dataDate = selectedDate,
+                        runTargetDate = runTargetDate,
+                        isDateOverridden = overrideDate != null,
+                        onPickOtherDate = { otherDatePickerDialog.show() },
+                        onResetDate = { overrideDate = null },
                         onNavigateBack = { currentScreen = AppScreen.Home },
                         onRunAutomation = { itemsToRun ->
-                            val absenceJson = sharedPreferences.getString("absence_dates", "[]") ?: "[]"
-                            val isAbsence = try {
-                                val array = org.json.JSONArray(absenceJson)
-                                var found = false
-                                for (i in 0 until array.length()) {
-                                    if (array.getString(i) == selectedDate) {
-                                        found = true
-                                        break
-                                    }
+                            val jsonArray = org.json.JSONArray()
+                            for (item in itemsToRun) {
+                                if (item.productCode != null) {
+                                    val obj = org.json.JSONObject()
+                                    obj.put("code", item.productCode)
+                                    obj.put("qty", item.qty.toString())
+                                    obj.put("name", item.originalName)
+                                    jsonArray.put(obj)
                                 }
-                                found
-                            } catch (e: Exception) { false }
+                            }
+                            val launchIntent = context.packageManager.getLaunchIntentForPackage("com.pti.nova")
+                            if (launchIntent != null) {
+                                // Arm a single automation run. The accessibility service consumes
+                                // this flag as soon as it fires, so opening Nova by hand later
+                                // never re-runs the automation.
+                                // run_target_date is the day the data is written into, which is not
+                                // necessarily the day the data came from.
+                                sharedPreferences.edit()
+                                    .putString("products_to_add", jsonArray.toString())
+                                    .putString("run_target_date", runTargetDate)
+                                    .putBoolean("automation_requested", true)
+                                    .putLong("automation_requested_at", System.currentTimeMillis())
+                                    .apply()
 
-                            if (isAbsence) {
-                                showAbsenceDialog = true
+                                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                                context.startActivity(launchIntent)
                             } else {
-                                val jsonArray = org.json.JSONArray()
-                                for (item in itemsToRun) {
-                                    if (item.productCode != null) {
-                                        val obj = org.json.JSONObject()
-                                        obj.put("code", item.productCode)
-                                        obj.put("qty", item.qty.toString())
-                                        obj.put("name", item.originalName)
-                                        jsonArray.put(obj)
-                                    }
-                                }
-                                val launchIntent = context.packageManager.getLaunchIntentForPackage("com.pti.nova")
-                                if (launchIntent != null) {
-                                    // Arm a single automation run. The accessibility service consumes
-                                    // this flag as soon as it fires, so opening Nova by hand later
-                                    // never re-runs the automation.
-                                    sharedPreferences.edit()
-                                        .putString("products_to_add", jsonArray.toString())
-                                        .putBoolean("automation_requested", true)
-                                        .putLong("automation_requested_at", System.currentTimeMillis())
-                                        .apply()
-
-                                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-                                    context.startActivity(launchIntent)
-                                } else {
-                                    Toast.makeText(context, "App com.pti.nova not found!", Toast.LENGTH_SHORT).show()
-                                }
+                                Toast.makeText(context, "App com.pti.nova not found!", Toast.LENGTH_SHORT).show()
                             }
                         },
                         onEnableService = {
@@ -391,6 +401,14 @@ private fun checkServiceEnabled(context: Context): Boolean {
         }
     }
     return false
+}
+
+private fun parseIndonesianDate(dateString: String): java.util.Date? {
+    return try {
+        SimpleDateFormat("EEEE, dd MMMM yyyy", Locale("id", "ID")).parse(dateString)
+    } catch (e: Exception) {
+        null
+    }
 }
 
 private fun getFileName(context: Context, uri: Uri): String {

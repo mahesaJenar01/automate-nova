@@ -98,7 +98,9 @@ class UpdateDataWorkflow(service: AccessibilityService) : AutomationWorkflow(ser
 
     private fun getTargetDate(context: Context): String {
         val prefs = context.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
-        return prefs.getString("target_date", "") ?: ""
+        // The day to write into, chosen on the Data Uploaded page. It is the date the data came
+        // from unless "Input in Other Date" was used, so it is not the same as "target_date".
+        return prefs.getString("run_target_date", "") ?: ""
     }
 
     override fun process(rootNode: AccessibilityNodeInfo?) {
@@ -285,13 +287,16 @@ class UpdateDataWorkflow(service: AccessibilityService) : AutomationWorkflow(ser
                             currentState = State.VALIDATING_DETAIL_SUMMARY_PAGE
                         }
                     } else {
-                        // 3. No button found. Logic for Absence vs Scroll:
+                        // 3. No button found. Either the section is fully visible (nothing to click
+                        //    on that day) or it is still clipped and we need to scroll.
                         if (nextDateTop != -1) {
                             // The next date is visible, meaning the current date's section is COMPLETELY on screen.
-                            // If there's no button in a complete section, it's an absence.
                             val actualHeight = nextDateTop - dateBounds.top
-                            Log.d(TAG, "Section for $targetDateString is complete. Height: $actualHeight. No button found. Marking ABSENCE.")
-                            markAbsenceAndRedirect(targetDateString)
+                            Log.d(TAG, "Section for $targetDateString is complete. Height: $actualHeight. No 'Update Data' button. Stopping.")
+                            abortAndRedirect(
+                                "Tanggal $targetDateString tidak punya tombol 'Update Data' di Nova App.\n\n" +
+                                    "Kalau tanggal itu libur, pilih tanggal lain lewat \"Input in Other Date\" lalu jalankan lagi."
+                            )
                         } else {
                             // The next date isn't visible yet. The section might be clipped.
                             Log.d(TAG, "Section for $targetDateString might be clipped (Next date not found). Scrolling...")
@@ -936,25 +941,13 @@ class UpdateDataWorkflow(service: AccessibilityService) : AutomationWorkflow(ser
         }
     }
 
-    private fun markAbsenceAndRedirect(date: String) {
+    /**
+     * Stops the run and returns to Automate Nova, leaving a note explaining why so the app can
+     * show it once it is back in the foreground.
+     */
+    private fun abortAndRedirect(message: String) {
         val prefs = service.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
-        val absenceJson = prefs.getString("absence_dates", "[]") ?: "[]"
-        try {
-            val array = org.json.JSONArray(absenceJson)
-            var exists = false
-            for (i in 0 until array.length()) {
-                if (array.getString(i) == date) {
-                    exists = true
-                    break
-                }
-            }
-            if (!exists) {
-                array.put(date)
-                prefs.edit().putString("absence_dates", array.toString()).apply()
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to save absence date", e)
-        }
+        prefs.edit().putString("last_run_message", message).apply()
 
         val intent = service.packageManager.getLaunchIntentForPackage("com.nova.automate")
         if (intent != null) {
