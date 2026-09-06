@@ -43,6 +43,11 @@ object ProductDatabaseManager {
     }
 
     fun saveProduct(context: Context, name: String, code: String) {
+        saveProducts(context, mapOf(name to code))
+    }
+
+    /** Adds or overwrites several codes at once — used when restoring a backup. */
+    fun saveProducts(context: Context, products: Map<String, String>) {
         try {
             val file = File(context.filesDir, CUSTOM_FILE_NAME)
             val jsonObject = if (file.exists()) {
@@ -50,9 +55,28 @@ object ProductDatabaseManager {
             } else {
                 JSONObject()
             }
-            
-            jsonObject.put(name, code)
+
+            for ((name, code) in products) {
+                jsonObject.put(name, code)
+            }
             file.writeText(jsonObject.toString(4)) // 4 spaces indent
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    /**
+     * Drops every stored override and writes [products] in their place. The
+     * bundled asset codes still show through underneath, so a "replace" import
+     * of a backup that already contains them lands on exactly the same map.
+     */
+    fun replaceCustomProducts(context: Context, products: Map<String, String>) {
+        try {
+            val jsonObject = JSONObject()
+            for ((name, code) in products) {
+                jsonObject.put(name, code)
+            }
+            File(context.filesDir, CUSTOM_FILE_NAME).writeText(jsonObject.toString(4))
         } catch (e: Exception) {
             e.printStackTrace()
         }

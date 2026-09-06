@@ -14,3 +14,12 @@
 .cxx
 local.properties
 app/build/
+
+# Release signing - NEVER commit these
+/keystore/
+*.jks
+*.keystore
+keystore.properties
+keystore.base64.txt
+
+dist/

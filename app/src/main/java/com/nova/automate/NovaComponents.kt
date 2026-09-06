@@ -1,8 +1,10 @@
 package com.nova.automate
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,10 +29,13 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -109,11 +114,22 @@ fun NovaCard(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val shape = MaterialTheme.shapes.medium
+    // Tappable cards dip slightly while held, so a tap feels answered before the
+    // screen changes. Non-tappable ones share the source but never see a press.
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressScale = rememberPressScale(interactionSource)
     Card(
         modifier = if (onClick != null) {
             modifier
+                .graphicsLayer {
+                    scaleX = pressScale
+                    scaleY = pressScale
+                }
                 .clip(shape)
-                .clickable { onClick() }
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = LocalIndication.current
+                ) { onClick() }
         } else {
             modifier
         },
@@ -168,13 +184,34 @@ fun Pill(
     }
 }
 
-/** Tappable row used for the home menu: badge, two lines of text, chevron. */
+/**
+ * Full-bleed card painted with the hero gradient. Used once per screen at most —
+ * it is the loudest thing in the palette, so a second one flattens the first.
+ */
+@Composable
+fun GradientCard(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val accents = MaterialTheme.accents
+    Column(
+        modifier = modifier
+            .clip(MaterialTheme.shapes.large)
+            .background(
+                Brush.linearGradient(listOf(accents.heroStart, accents.heroEnd))
+            ),
+        content = content
+    )
+}
+
+/** Tappable row used for the home menu: badge, two lines of text, optional count, chevron. */
 @Composable
 fun MenuCard(
     icon: ImageVector,
     title: String,
     subtitle: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    badge: String? = null
 ) {
     NovaCard(modifier = Modifier.fillMaxWidth(), onClick = onClick) {
         Row(
@@ -193,6 +230,10 @@ fun MenuCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+            if (badge != null) {
+                Pill(text = badge)
+                Spacer(modifier = Modifier.width(6.dp))
             }
             Icon(
                 Icons.Default.KeyboardArrowRight,
@@ -213,20 +254,12 @@ fun SectionLabel(text: String) {
     )
 }
 
-/** Coloured dot plus a line of text, for at-a-glance status. */
+/** Coloured dot plus a line of text, for at-a-glance status. Pulses while active. */
 @Composable
 fun StatusDot(active: Boolean, label: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            modifier = Modifier
-                .size(8.dp)
-                .clip(RoundedCornerShape(percent = 50))
-                .background(
-                    if (active) MaterialTheme.colorScheme.secondary
-                    else MaterialTheme.colorScheme.error
-                )
-        )
-        Spacer(modifier = Modifier.width(8.dp))
+        PulsingDot(active = active)
+        Spacer(modifier = Modifier.width(4.dp))
         Text(
             text = label,
             style = MaterialTheme.typography.bodySmall,

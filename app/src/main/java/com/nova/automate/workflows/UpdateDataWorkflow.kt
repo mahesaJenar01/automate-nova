@@ -51,6 +51,7 @@ class UpdateDataWorkflow(service: AccessibilityService) : AutomationWorkflow(ser
 
     private var currentState = State.IDLE
     private var targetDateString: String = ""
+    private var dataDateString: String = ""
     private val handler = Handler(Looper.getMainLooper())
     private var searchRunnable: Runnable? = null
     private var productsToAdd = mutableListOf<ProductItem>()
@@ -62,6 +63,7 @@ class UpdateDataWorkflow(service: AccessibilityService) : AutomationWorkflow(ser
     override fun start() {
         isFinished = false
         targetDateString = getTargetDate(service)
+        dataDateString = getDataDate(service)
         productsToAdd.clear()
         
         val prefs = service.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
@@ -101,6 +103,14 @@ class UpdateDataWorkflow(service: AccessibilityService) : AutomationWorkflow(ser
         // The day to write into, chosen on the Data Uploaded page. It is the date the data came
         // from unless "Input in Other Date" was used, so it is not the same as "target_date".
         return prefs.getString("run_target_date", "") ?: ""
+    }
+
+    private fun getDataDate(context: Context): String {
+        val prefs = context.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
+        // The day the uploaded data actually came from. Falls back to the day being written
+        // into, which is the same thing unless "Input in Other Date" was used.
+        val dataDate = prefs.getString("run_data_date", "") ?: ""
+        return if (dataDate.isBlank()) targetDateString else dataDate
     }
 
     override fun process(rootNode: AccessibilityNodeInfo?) {
@@ -378,19 +388,22 @@ class UpdateDataWorkflow(service: AccessibilityService) : AutomationWorkflow(ser
             }
 
             State.CLICKING_OMG_FILTER -> {
-                Log.d(TAG, "Searching for 'OMG' filter view...")
+                Log.d(TAG, "Searching for the brand dropdown...")
+                // The dropdown shows the brand that is currently selected, which is not always
+                // "OMG", so fall back to locating it by its position and shape.
                 val omgNode = rootNode.findNodeByContentDescription("OMG")
+                    ?: rootNode.findBrandDropdown()
                 if (omgNode != null) {
                     var nodeToClick = omgNode
                     while (nodeToClick != null && !nodeToClick.isClickable) {
                         nodeToClick = nodeToClick.parent
                     }
                     if (nodeToClick != null && nodeToClick.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                        Log.d(TAG, "SUCCESS! Clicked the 'OMG' filter view.")
+                        Log.d(TAG, "SUCCESS! Clicked the brand dropdown.")
                         foundInCurrentStep = true
                         currentState = State.SEARCHING_OMG_RADIO
                     } else {
-                        Log.d(TAG, "Found 'OMG' but couldn't click it.")
+                        Log.d(TAG, "Found the brand dropdown but couldn't click it.")
                     }
                 }
             }
@@ -888,7 +901,10 @@ class UpdateDataWorkflow(service: AccessibilityService) : AutomationWorkflow(ser
                 }
                 
                 val reportObj = org.json.JSONObject()
-                reportObj.put("date", targetDateString)
+                // "date" is the day the data came from, "inputDate" the day it was written into
+                // Nova. They differ whenever "Input in Other Date" was used.
+                reportObj.put("date", dataDateString)
+                reportObj.put("inputDate", targetDateString)
                 reportObj.put("totalQty", totalQty)
                 reportObj.put("totalPrice", totalPrice)
                 reportObj.put("items", itemsArray)

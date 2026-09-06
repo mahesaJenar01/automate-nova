@@ -127,29 +127,53 @@ fun ExtractedDataScreen(
             onBack = onNavigateBack
         )
 
-        if (missingCount > 0) {
-            NovaCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 4.dp),
-                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                borderColor = Color.Transparent
+        // How close this batch is to being runnable. Amber while codes are still
+        // missing, teal once every product has one.
+        val ready = missingCount == 0
+        val codedCount = mutableItems.size - missingCount
+        val onAccent = if (ready) MaterialTheme.colorScheme.onSecondaryContainer
+        else MaterialTheme.colorScheme.onTertiaryContainer
+
+        NovaCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 4.dp),
+            containerColor = if (ready) MaterialTheme.colorScheme.secondaryContainer
+            else MaterialTheme.colorScheme.tertiaryContainer,
+            borderColor = Color.Transparent
+        ) {
+            Row(
+                modifier = Modifier.padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier.padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                ProgressRing(
+                    progress = if (mutableItems.isEmpty()) 0f
+                    else codedCount.toFloat() / mutableItems.size,
+                    size = 50.dp,
+                    strokeWidth = 5.dp,
+                    color = onAccent,
+                    trackColor = onAccent.copy(alpha = 0.2f)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Warning,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onTertiaryContainer,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = "$missingCount produk belum punya kode. Ketuk kartunya untuk mengisi.",
+                        text = "$codedCount/${mutableItems.size}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = onAccent
+                    )
+                }
+                Spacer(modifier = Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (ready) "Semua kode sudah terisi"
+                        else "$missingCount produk belum punya kode",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = onAccent
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = if (ready) "Siap dijalankan ke Nova App."
+                        else "Ketuk kartu bertanda untuk mengisinya.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                        color = onAccent
                     )
                 }
             }

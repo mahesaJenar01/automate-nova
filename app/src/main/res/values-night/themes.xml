@@ -1,0 +1,17 @@
+<resources>
+
+    <!--
+        Dark counterpart of Theme.AutomateNova. Colours mirror NovaDarkColors in
+        Theme.kt: background #121118. Keep the two in sync.
+    -->
+    <style name="Theme.AutomateNova" parent="@android:style/Theme.Material.NoActionBar">
+
+        <item name="android:windowBackground">#121118</item>
+
+        <item name="android:statusBarColor">#121118</item>
+
+        <item name="android:windowLightStatusBar">false</item>
+
+    </style>
+
+</resources>

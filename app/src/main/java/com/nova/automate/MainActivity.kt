@@ -14,6 +14,16 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -33,10 +43,12 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -53,6 +65,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -69,7 +82,8 @@ enum class AppScreen {
     ProductList,
     ExtractedData,
     LaporanList,
-    LaporanDetail
+    LaporanDetail,
+    Backup
 }
 
 class MainActivity : ComponentActivity() {
@@ -83,12 +97,16 @@ class MainActivity : ComponentActivity() {
                 var isServiceEnabled by remember { mutableStateOf(checkServiceEnabled(context)) }
                 val sharedPreferences = context.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
                 var runMessage by remember { mutableStateOf<String?>(null) }
+                // Bumped on every resume. The home summary is keyed on it so a
+                // laporan saved during an automation run shows up on the way back.
+                var dataRevision by remember { mutableStateOf(0) }
 
                 val lifecycleOwner = LocalLifecycleOwner.current
                 DisposableEffect(lifecycleOwner) {
                     val observer = LifecycleEventObserver { _, event ->
                         if (event == Lifecycle.Event.ON_RESUME) {
                             isServiceEnabled = checkServiceEnabled(context)
+                            dataRevision++
 
                             // The workflow leaves a note here when it stops before submitting.
                             val message = sharedPreferences.getString("last_run_message", null)
@@ -160,13 +178,29 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                when (currentScreen) {
+                // Screens slide in from the side they sit on: deeper pages enter from
+                // the right, going back sends them out the way they came.
+                AnimatedContent(
+                    targetState = currentScreen,
+                    transitionSpec = {
+                        val direction = if (screenDepth(targetState) >= screenDepth(initialState)) 1 else -1
+                        val slide = tween<IntOffset>(durationMillis = 280, easing = FastOutSlowInEasing)
+                        (slideInHorizontally(slide) { full -> direction * full / 5 } +
+                            fadeIn(tween(200))) togetherWith
+                            (slideOutHorizontally(slide) { full -> -direction * full / 5 } +
+                                fadeOut(tween(160))) using SizeTransform(clip = false)
+                    },
+                    label = "screen"
+                ) { screen ->
+                when (screen) {
                     AppScreen.Home -> MainScreen(
                         selectedDate = selectedDate,
                         isServiceEnabled = isServiceEnabled,
                         datePickerDialog = datePickerDialog,
+                        dataRevision = dataRevision,
                         onNavigateToProducts = { currentScreen = AppScreen.ProductList },
                         onNavigateToLaporan = { currentScreen = AppScreen.LaporanList },
+                        onNavigateToBackup = { currentScreen = AppScreen.Backup },
                         onDataExtracted = { data ->
                             extractedData = data
                             overrideDate = null
@@ -200,10 +234,12 @@ class MainActivity : ComponentActivity() {
                                 // this flag as soon as it fires, so opening Nova by hand later
                                 // never re-runs the automation.
                                 // run_target_date is the day the data is written into, which is not
-                                // necessarily the day the data came from.
+                                // necessarily the day the data came from (run_data_date). The
+                                // Laporan reports both so an override stays visible afterwards.
                                 sharedPreferences.edit()
                                     .putString("products_to_add", jsonArray.toString())
                                     .putString("run_target_date", runTargetDate)
+                                    .putString("run_data_date", selectedDate)
                                     .putBoolean("automation_requested", true)
                                     .putLong("automation_requested_at", System.currentTimeMillis())
                                     .apply()
@@ -231,10 +267,31 @@ class MainActivity : ComponentActivity() {
                             onNavigateBack = { currentScreen = AppScreen.LaporanList }
                         )
                     }
+                    AppScreen.Backup -> BackupScreen(
+                        onNavigateBack = { currentScreen = AppScreen.Home },
+                        // An import can bring a target date with it, so pick the
+                        // stored value back up instead of showing a stale one.
+                        onDataChanged = {
+                            selectedDate = sharedPreferences.getString("target_date", "Belum ada tanggal")
+                                ?: "Belum ada tanggal"
+                            dataRevision++
+                        }
+                    )
+                }
                 }
             }
         }
     }
+}
+
+/**
+ * How far into the app a screen sits. Only the ordering matters — it decides
+ * which way [AnimatedContent] slides between two screens.
+ */
+private fun screenDepth(screen: AppScreen): Int = when (screen) {
+    AppScreen.Home -> 0
+    AppScreen.ProductList, AppScreen.ExtractedData, AppScreen.LaporanList, AppScreen.Backup -> 1
+    AppScreen.LaporanDetail -> 2
 }
 
 @Composable
@@ -242,8 +299,10 @@ fun MainScreen(
     selectedDate: String,
     isServiceEnabled: Boolean,
     datePickerDialog: DatePickerDialog,
+    dataRevision: Int,
     onNavigateToProducts: () -> Unit,
     onNavigateToLaporan: () -> Unit,
+    onNavigateToBackup: () -> Unit,
     onDataExtracted: (List<ProcessedItem>) -> Unit
 ) {
     val context = LocalContext.current
@@ -321,95 +380,265 @@ fun MainScreen(
 
     val hasDate = selectedDate != "Belum ada tanggal"
 
-    NovaScreen {
-        NovaHeader(
-            title = "Automate Nova",
-            subtitle = "Input sellout otomatis ke Nova App"
-        )
+    // Everything below the upload button is a read-only view of what is already
+    // stored, re-read whenever the activity resumes.
+    val reports = remember(dataRevision) { getLaporanData(context) }
+    val productCount = remember(dataRevision) { ProductDatabaseManager.getProducts(context).size }
+    val weeks = remember(reports) { recentWeekTotals(reports) }
 
+    NovaScreen {
         Column(
             modifier = Modifier
                 .weight(1f)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
         ) {
-            NovaCard(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(20.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconBadge(Icons.Default.DateRange)
-                        Spacer(modifier = Modifier.width(14.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            SectionLabel("Target tanggal")
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = selectedDate,
-                                style = MaterialTheme.typography.titleMedium,
-                                color = if (hasDate) MaterialTheme.colorScheme.onSurface
-                                else MaterialTheme.colorScheme.onSurfaceVariant
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Reveal {
+                HomeHero(
+                    selectedDate = selectedDate,
+                    hasDate = hasDate,
+                    onPickDate = { datePickerDialog.show() }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Reveal(delayMillis = 70) {
+                Button(
+                    onClick = {
+                        filePickerLauncher.launch(
+                            arrayOf(
+                                "application/vnd.ms-excel",
+                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                             )
-                        }
+                        )
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text("Upload File Excel", style = MaterialTheme.typography.labelLarge)
+                }
+            }
+
+            // Nothing to summarise until an automation run has saved its first laporan.
+            if (reports.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(28.dp))
+                Reveal(delayMillis = 140) {
+                    Column {
+                        SectionLabel("Ringkasan")
+                        Spacer(modifier = Modifier.height(10.dp))
+                        WeeklyPulseCard(weeks = weeks, onClick = onNavigateToLaporan)
                     }
-                    Spacer(modifier = Modifier.height(16.dp))
-                    OutlinedButton(
-                        onClick = { datePickerDialog.show() },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(if (hasDate) "Ubah Tanggal" else "Pilih Tanggal")
-                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(28.dp))
+
+            Reveal(delayMillis = 210) {
+                Column {
+                    SectionLabel("Lainnya")
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    MenuCard(
+                        icon = Icons.Default.ShoppingCart,
+                        title = "Kode Produk",
+                        subtitle = "Daftar kode produk yang tersimpan",
+                        badge = productCount.toString(),
+                        onClick = onNavigateToProducts
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    MenuCard(
+                        icon = Icons.Default.List,
+                        title = "Laporan",
+                        subtitle = "Riwayat sellout yang sudah dikirim",
+                        badge = reports.size.toString(),
+                        onClick = onNavigateToLaporan
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    MenuCard(
+                        icon = Icons.Default.Share,
+                        title = "Cadangan Data",
+                        subtitle = "Ekspor & impor kode produk dan laporan",
+                        onClick = onNavigateToBackup
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+        }
+
+        Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
+            StatusDot(
+                active = isServiceEnabled,
+                label = if (isServiceEnabled) "Accessibility service aktif"
+                else "Accessibility service belum aktif"
+            )
+        }
+    }
+}
+
+/** Time-of-day greeting for the hero card. */
+private fun greeting(hour: Int = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)): String = when (hour) {
+    in 0..10 -> "Selamat pagi"
+    in 11..14 -> "Selamat siang"
+    in 15..17 -> "Selamat sore"
+    else -> "Selamat malam"
+}
+
+/**
+ * The one loud element on the home screen: the greeting, and the day the next
+ * upload will be filed under.
+ */
+@Composable
+private fun HomeHero(
+    selectedDate: String,
+    hasDate: Boolean,
+    onPickDate: () -> Unit
+) {
+    val accents = MaterialTheme.accents
+    val relative = if (hasDate) relativeDayLabel(selectedDate) else null
+
+    GradientCard(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(22.dp)) {
+            Text(
+                text = greeting(),
+                style = MaterialTheme.typography.labelMedium,
+                color = accents.onHeroMuted
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = "Automate Nova",
+                style = MaterialTheme.typography.headlineSmall,
+                color = accents.onHero
+            )
+
+            Spacer(modifier = Modifier.height(22.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "TARGET TANGGAL",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = accents.onHeroMuted
+                )
+                if (relative != null) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Pill(
+                        text = relative,
+                        container = accents.onHero.copy(alpha = 0.18f),
+                        contentColor = accents.onHero
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = if (hasDate) selectedDate else "Belum dipilih",
+                style = MaterialTheme.typography.titleLarge,
+                color = accents.onHero
+            )
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            OutlinedButton(
+                onClick = onPickDate,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = accents.onHero),
+                border = BorderStroke(1.dp, accents.onHeroMuted)
+            ) {
+                Icon(
+                    Icons.Default.DateRange,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(if (hasDate) "Ubah Tanggal" else "Pilih Tanggal")
+            }
+        }
+    }
+}
+
+/**
+ * This week's totals with the weeks behind it as a bar chart. The percentage
+ * compares value against last week, and is left off when last week had nothing
+ * to compare against.
+ */
+@Composable
+private fun WeeklyPulseCard(weeks: List<WeekTotal>, onClick: () -> Unit) {
+    if (weeks.isEmpty()) return
+    val current = weeks.last()
+    val previous = weeks.getOrNull(weeks.lastIndex - 1)
+    val deltaPercent = if (previous != null && previous.totalPrice > 0) {
+        Math.round((current.totalPrice - previous.totalPrice) * 100.0 / previous.totalPrice).toInt()
+    } else {
+        null
+    }
+
+    NovaCard(modifier = Modifier.fillMaxWidth(), onClick = onClick) {
+        Column(modifier = Modifier.padding(18.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Minggu ini", style = MaterialTheme.typography.titleMedium)
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = current.rangeLabel,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (deltaPercent != null) {
+                    val up = deltaPercent >= 0
+                    Pill(
+                        text = (if (up) "+" else "-") + Math.abs(deltaPercent) + "%",
+                        container = if (up) MaterialTheme.colorScheme.secondaryContainer
+                        else MaterialTheme.colorScheme.errorContainer,
+                        contentColor = if (up) MaterialTheme.colorScheme.onSecondaryContainer
+                        else MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            Row(modifier = Modifier.fillMaxWidth()) {
+                StatTile(label = "Laporan", modifier = Modifier.weight(1f)) {
+                    AnimatedCount(
+                        value = current.reportCount,
+                        style = MaterialTheme.typography.titleLarge
+                    )
+                }
+                StatTile(label = "Kuantitas", modifier = Modifier.weight(1f)) {
+                    AnimatedCount(
+                        value = current.totalQty,
+                        style = MaterialTheme.typography.titleLarge
+                    )
+                }
+                StatTile(label = "Nilai", modifier = Modifier.weight(1f)) {
+                    AnimatedCount(
+                        value = current.totalPrice,
+                        style = MaterialTheme.typography.titleLarge,
+                        format = { formatRupiahShort(it) }
+                    )
                 }
             }
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            Button(
-                onClick = {
-                    filePickerLauncher.launch(
-                        arrayOf(
-                            "application/vnd.ms-excel",
-                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
+            NovaBarChart(
+                bars = weeks.mapIndexed { index, week ->
+                    ChartBar(
+                        label = week.label,
+                        value = week.totalPrice.toLong(),
+                        highlighted = index == weeks.lastIndex
                     )
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp)
-            ) {
-                Icon(
-                    Icons.Default.Add,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Text("Upload File Excel", style = MaterialTheme.typography.labelLarge)
-            }
-
-            Spacer(modifier = Modifier.height(28.dp))
-
-            SectionLabel("Lainnya")
-            Spacer(modifier = Modifier.height(10.dp))
-
-            MenuCard(
-                icon = Icons.Default.ShoppingCart,
-                title = "Kode Produk",
-                subtitle = "Daftar kode produk yang tersimpan",
-                onClick = onNavigateToProducts
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-            MenuCard(
-                icon = Icons.Default.List,
-                title = "Laporan",
-                subtitle = "Riwayat sellout yang sudah dikirim",
-                onClick = onNavigateToLaporan
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-        }
-
-        Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
-            StatusDot(
-                active = isServiceEnabled,
-                label = if (isServiceEnabled) "Accessibility service aktif"
-                else "Accessibility service belum aktif"
+                }
             )
         }
     }
@@ -485,14 +714,6 @@ private fun checkServiceEnabled(context: Context): Boolean {
         }
     }
     return false
-}
-
-private fun parseIndonesianDate(dateString: String): java.util.Date? {
-    return try {
-        SimpleDateFormat("EEEE, dd MMMM yyyy", Locale("id", "ID")).parse(dateString)
-    } catch (e: Exception) {
-        null
-    }
 }
 
 private fun getFileName(context: Context, uri: Uri): String {

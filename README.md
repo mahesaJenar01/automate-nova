@@ -9,7 +9,21 @@ An Android Accessibility Service application designed to automate repetitive UI 
 * **Human-like Typing Simulation**: Inputs text digit-by-digit while mimicking clipboard pastes to reliably trigger Android `TextWatcher` events.
 * **Flexible Workflows**: Employs a state machine (`UpdateDataWorkflow`) to sequentially process tasks.
 
-## Quick Start
+## Install on a phone (no cable)
+
+Releases are built and signed by GitHub Actions and published as GitHub
+Releases; [Obtainium](https://github.com/ImranR98/Obtainium) installs and
+updates them over the air. See [RELEASING.md](RELEASING.md) for the one-time
+setup and how to cut a release. The short version:
+
+```cmd
+run.bat release 1.0.0
+```
+
+then drag `distutomate-nova-1.0.0.apk` onto a new GitHub Release tagged
+`v1.0.0`.
+
+## Quick Start (cable / ADB)
 
 1. **Build the Application**
    You can easily build the app directly using the provided batch script:
@@ -32,5 +46,5 @@ An Android Accessibility Service application designed to automate repetitive UI 
    ```
 
 ## Requirements
-* Android device with Developer Options / ADB enabled.
+* Android device with Developer Options / ADB enabled (only for the `run.bat` workflow; Obtainium installs need neither).
 * Android Accessibility privileges granted to the application.

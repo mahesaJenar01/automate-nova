@@ -1,5 +1,6 @@
 package com.nova.automate.core
 
+import android.graphics.Rect
 import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
 
@@ -222,4 +223,85 @@ fun AccessibilityNodeInfo.logAllScreenElements() {
             child.recycle()
         }
     }
+}
+
+/**
+ * Finds the brand dropdown on the Sellout page.
+ *
+ * The dropdown is labelled with whatever brand happens to be selected ("OMG", "Emina", ...),
+ * so its content description can't be matched directly. What stays stable is its shape and
+ * placement: a plain clickable view sitting just below the "Riwayat Sellout" link in the top
+ * strip of the screen, carrying a short content description, and laid out as a wide pill
+ * rather than an icon.
+ */
+fun AccessibilityNodeInfo.findBrandDropdown(): AccessibilityNodeInfo? {
+    val screenBounds = Rect()
+    this.getBoundsInScreen(screenBounds)
+    val topStripBottom = if (screenBounds.height() > 0) {
+        screenBounds.top + (screenBounds.height() * 0.25f).toInt()
+    } else {
+        Int.MAX_VALUE
+    }
+
+    // The dropdown sits below the "Riwayat Sellout" link, which is itself a clickable pill in
+    // the same corner of the header. Use it as the anchor so it can never be picked instead.
+    var searchTop = screenBounds.top
+    val riwayatNode = this.findNodeByContentDescription("Riwayat Sellout")
+    if (riwayatNode != null) {
+        val riwayatBounds = Rect()
+        riwayatNode.getBoundsInScreen(riwayatBounds)
+        searchTop = riwayatBounds.bottom
+        riwayatNode.recycle()
+        Log.d(TAG, "Anchored brand dropdown search below 'Riwayat Sellout' (y=$searchTop).")
+    }
+
+    val ignoredDescriptions = listOf(
+        "sellout", "update sellout", "riwayat sellout",
+        "kembali", "back", "navigate up", "tutup", "close"
+    )
+
+    var best: AccessibilityNodeInfo? = null
+    var bestBounds: Rect? = null
+
+    fun scan(node: AccessibilityNodeInfo) {
+        val desc = node.contentDescription?.toString()?.trim()
+        val className = node.className?.toString() ?: ""
+        val isIcon = className.contains("ImageView") || className.contains("ImageButton")
+        if (node.isClickable && node.isVisibleToUser && !isIcon &&
+            !desc.isNullOrEmpty() && desc.length <= 30 &&
+            !ignoredDescriptions.contains(desc.lowercase())
+        ) {
+            val bounds = Rect()
+            node.getBoundsInScreen(bounds)
+            val isPillShaped = bounds.width() >= bounds.height() * 1.5
+            if (bounds.top >= searchTop && bounds.top <= topStripBottom && isPillShaped) {
+                val currentBest = bestBounds
+                val isBetter = currentBest == null ||
+                    bounds.top < currentBest.top ||
+                    (bounds.top == currentBest.top && bounds.left > currentBest.left)
+                if (isBetter) {
+                    Log.d(TAG, "Brand dropdown candidate: '$desc' ($className) at $bounds")
+                    best?.recycle()
+                    best = AccessibilityNodeInfo.obtain(node)
+                    bestBounds = bounds
+                }
+            }
+        }
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i)
+            if (child != null) {
+                scan(child)
+                child.recycle()
+            }
+        }
+    }
+    scan(this)
+
+    val picked = best
+    if (picked != null) {
+        Log.d(TAG, "Brand dropdown picked: '${picked.contentDescription}'")
+    } else {
+        Log.d(TAG, "No brand dropdown found in the top strip of the screen.")
+    }
+    return picked
 }

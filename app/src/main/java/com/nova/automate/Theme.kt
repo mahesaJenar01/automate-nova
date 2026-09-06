@@ -1,11 +1,17 @@
 package com.nova.automate
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -16,7 +22,7 @@ import androidx.compose.ui.unit.sp
  * A single indigo-led palette so every screen shares the same visual language:
  * indigo for actions, teal for "done / confirmed", amber for "needs your attention".
  */
-private val NovaColors = lightColorScheme(
+private val NovaLightColors = lightColorScheme(
     primary = Color(0xFF4F46E5),
     onPrimary = Color(0xFFFFFFFF),
     primaryContainer = Color(0xFFE4E3FD),
@@ -52,6 +58,84 @@ private val NovaColors = lightColorScheme(
     inversePrimary = Color(0xFFC0BDFF)
 )
 
+/** The same language after dark: identical hues, roles flipped for a dim room. */
+private val NovaDarkColors = darkColorScheme(
+    primary = Color(0xFFC0BDFF),
+    onPrimary = Color(0xFF251C7A),
+    primaryContainer = Color(0xFF3A32A0),
+    onPrimaryContainer = Color(0xFFE4E3FD),
+
+    secondary = Color(0xFF83DBC8),
+    onSecondary = Color(0xFF00382F),
+    secondaryContainer = Color(0xFF005143),
+    onSecondaryContainer = Color(0xFFC8F2E8),
+
+    tertiary = Color(0xFFF3C06E),
+    onTertiary = Color(0xFF452B00),
+    tertiaryContainer = Color(0xFF6A4100),
+    onTertiaryContainer = Color(0xFFFDECC8),
+
+    background = Color(0xFF121118),
+    onBackground = Color(0xFFE7E4F0),
+    surface = Color(0xFF1B1A23),
+    onSurface = Color(0xFFE7E4F0),
+    surfaceVariant = Color(0xFF2B2934),
+    onSurfaceVariant = Color(0xFFC5C2D2),
+
+    outline = Color(0xFF918EA1),
+    outlineVariant = Color(0xFF383544),
+
+    error = Color(0xFFFFB4AB),
+    onError = Color(0xFF690005),
+    errorContainer = Color(0xFF93000A),
+    onErrorContainer = Color(0xFFFFDAD6),
+
+    inverseSurface = Color(0xFFE7E4F0),
+    inverseOnSurface = Color(0xFF2F2E37),
+    inversePrimary = Color(0xFF4F46E5)
+)
+
+/**
+ * Colours Material doesn't have a slot for: the home hero gradient and the bars
+ * of the little weekly chart. Kept beside the scheme so light and dark stay in step.
+ */
+@Immutable
+data class NovaAccents(
+    val heroStart: Color,
+    val heroEnd: Color,
+    val onHero: Color,
+    val onHeroMuted: Color,
+    val chartBar: Color,
+    val chartTrack: Color,
+    val positive: Color
+)
+
+private val LightAccents = NovaAccents(
+    heroStart = Color(0xFF4F46E5),
+    heroEnd = Color(0xFF7C5CE0),
+    onHero = Color(0xFFFFFFFF),
+    onHeroMuted = Color(0xCCE6E4FF),
+    chartBar = Color(0xFF6D63EA),
+    chartTrack = Color(0xFFE4E3FD),
+    positive = Color(0xFF0E7C6B)
+)
+
+private val DarkAccents = NovaAccents(
+    heroStart = Color(0xFF3A32A0),
+    heroEnd = Color(0xFF5B41A8),
+    onHero = Color(0xFFF2F0FF),
+    onHeroMuted = Color(0xCCC7C2EE),
+    chartBar = Color(0xFF9C94F5),
+    chartTrack = Color(0xFF2F2C45),
+    positive = Color(0xFF83DBC8)
+)
+
+private val LocalNovaAccents = staticCompositionLocalOf { LightAccents }
+
+/** `MaterialTheme.accents` reads alongside `MaterialTheme.colorScheme`. */
+val MaterialTheme.accents: NovaAccents
+    @Composable @ReadOnlyComposable get() = LocalNovaAccents.current
+
 private val NovaShapes = Shapes(
     extraSmall = RoundedCornerShape(8.dp),
     small = RoundedCornerShape(12.dp),
@@ -62,6 +146,12 @@ private val NovaShapes = Shapes(
 
 /** Tighter tracking and heavier titles — the default Material scale reads a bit flat here. */
 private val NovaTypography = Typography(
+    displaySmall = TextStyle(
+        fontWeight = FontWeight.Bold,
+        fontSize = 34.sp,
+        lineHeight = 40.sp,
+        letterSpacing = (-0.8).sp
+    ),
     headlineMedium = TextStyle(
         fontWeight = FontWeight.Bold,
         fontSize = 28.sp,
@@ -131,11 +221,18 @@ private val NovaTypography = Typography(
 )
 
 @Composable
-fun NovaTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = NovaColors,
-        shapes = NovaShapes,
-        typography = NovaTypography,
-        content = content
-    )
+fun NovaTheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    content: @Composable () -> Unit
+) {
+    CompositionLocalProvider(
+        LocalNovaAccents provides if (darkTheme) DarkAccents else LightAccents
+    ) {
+        MaterialTheme(
+            colorScheme = if (darkTheme) NovaDarkColors else NovaLightColors,
+            shapes = NovaShapes,
+            typography = NovaTypography,
+            content = content
+        )
+    }
 }
