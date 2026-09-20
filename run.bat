@@ -105,6 +105,21 @@ if %PATCH% gtr 99 (
 REM Same formula the release workflow uses: 1.2.3 -> 10203
 set /a VCODE=%MAJOR% * 10000 + %MINOR% * 100 + %PATCH%
 
+REM Output name is <app>-<versionName>-<versionCode>.apk so two builds can
+REM never land on the same filename. The app name is the project folder name,
+REM which is what the old hardcoded "automate-nova-<version>.apk" used.
+for %%i in ("%~dp0.") do set "APPNAME=%%~nxi"
+set "OUT=dist\%APPNAME%-%VERSION%-%VCODE%.apk"
+
+REM Check before the build, not after: a finished build that cannot be staged
+REM has burned several minutes for nothing.
+if exist "%OUT%" (
+    echo [ERROR] %OUT% already exists.
+    echo         Refusing to overwrite it - that file may already be published.
+    echo         Use a new version, or delete it yourself first.
+    exit /b 1
+)
+
 echo.
 echo ===================================
 echo 1. Building signed release APK
@@ -161,22 +176,52 @@ echo ===================================
 echo 3. Staging into dist\
 echo ===================================
 if not exist "dist" mkdir "dist"
-copy /y "%APK%" "dist\automate-nova-%VERSION%.apk" >nul
+REM Re-check: the build takes minutes and nothing stopped the file appearing
+REM in that window.
+if exist "%OUT%" (
+    echo [ERROR] %OUT% appeared while the build was running.
+    echo         Refusing to overwrite it.
+    exit /b 1
+)
+copy /y "%APK%" "%OUT%" >nul
 if %errorlevel% neq 0 (
     echo [ERROR] Could not copy the APK into dist\
     exit /b 1
 )
 
+REM Only now that the new APK is safely in place, retire the stale ones.
+REM /o-d lists newest first, so "skip=3" lands exactly on everything past
+REM the three most recent - no counter variable, so no delayed expansion.
+REM The APK just copied is always the newest, so it can never be caught.
+for /f "skip=3 delims=" %%f in ('dir /b /a-d /o-d "dist\%APPNAME%-*.apk" 2^>nul') do (
+    del "dist\%%f" >nul 2>&1
+    if exist "dist\%%f" (
+        echo [WARN] Could not remove dist\%%f - is it open somewhere?
+    ) else (
+        echo Retired older build: dist\%%f
+    )
+)
+REM "dir" sets errorlevel 1 when nothing matched, and the loop body may
+REM never run. Neither is a failure - clear it so the tail stays clean.
+ver >nul
+
 echo.
 echo ===================================
-echo Done: dist\automate-nova-%VERSION%.apk
+echo Done: %OUT%
 echo ===================================
 echo.
-echo Next, publish it so Obtainium can see it:
+echo Publish it with the GitHub CLI:
+echo.
+echo   gh release create v%VERSION% --title "v%VERSION%" --notes "v%VERSION%" "%OUT%"
+echo.
+echo   ^(that command creates the v%VERSION% tag, which also starts the
+echo    Release APK workflow - let one of the two produce the APK, not both.^)
+echo.
+echo Or by hand, so Obtainium can see it:
 echo   1. Open https://github.com/mahesaJenar01/automate-nova/releases/new
 echo   2. Tag:   v%VERSION%      (choose "Create new tag on publish")
 echo   3. Title: v%VERSION%
-echo   4. Drag dist\automate-nova-%VERSION%.apk onto "Attach binaries..."
+echo   4. Drag %OUT% onto "Attach binaries..."
 echo   5. Publish release
 echo.
 echo Then pull to refresh in Obtainium.
