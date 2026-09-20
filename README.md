@@ -17,11 +17,12 @@ updates them over the air. See [RELEASING.md](RELEASING.md) for the one-time
 setup and how to cut a release. The short version:
 
 ```cmd
-run.bat release 1.0.0
+run.bat release
 ```
 
-then drag `distutomate-nova-1.0.0.apk` onto a new GitHub Release tagged
-`v1.0.0`.
+It numbers the build itself — the version in `version.properties` with its
+patch stepped by one — and prints the file it wrote into `dist\`. Drag that
+onto a new GitHub Release tagged `v<that version>`.
 
 ## Quick Start (cable / ADB)
 

@@ -51,24 +51,17 @@ goto :eof
 
 
 REM ============================================================
-REM  run.bat release X.Y.Z
+REM  run.bat release [patch / minor / major / X.Y.Z]
 REM  Builds a signed release APK into dist\ for upload to a
 REM  GitHub Release. No device or ADB needed.
+REM
+REM  With no argument it numbers the build itself: the version recorded in
+REM  version.properties, with its patch stepped by one. "minor" and "major"
+REM  step those parts instead, and an explicit X.Y.Z overrides the lot.
+REM  version.properties is rewritten only once the APK is safely in dist\,
+REM  so a build that fails never burns a number.
 REM ============================================================
 :release
-
-set "VERSION=%~2"
-if "%VERSION%"=="" (
-    echo [ERROR] Usage: run.bat release ^<version^>
-    echo         e.g.  run.bat release 1.0.0
-    exit /b 1
-)
-
-echo %VERSION%| findstr /r /c:"^[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*$" >nul
-if errorlevel 1 (
-    echo [ERROR] Version must be MAJOR.MINOR.PATCH, e.g. 1.0.0  ^(got "%VERSION%"^)
-    exit /b 1
-)
 
 if not exist "keystore.properties" (
     echo [ERROR] keystore.properties not found.
@@ -78,32 +71,75 @@ if not exist "keystore.properties" (
     exit /b 1
 )
 
-for /f "tokens=1,2,3 delims=." %%a in ("%VERSION%") do (
+REM What to do with the number, defaulting to the smallest step there is.
+set "STEP=%~2"
+if "%STEP%"=="" set "STEP=patch"
+
+REM version.properties is the only thing that remembers what was last built,
+REM so a missing file is a hard stop rather than a silent restart from 1.0.0 -
+REM that would hand the phone a versionCode it has already seen and refuses.
+if not exist "version.properties" (
+    echo [ERROR] version.properties not found - it is what "run.bat release"
+    echo         counts from. Recreate it with the last version released:
+    echo             versionName=1.0.2
+    exit /b 1
+)
+
+set "OLDNAME="
+for /f "usebackq eol=# tokens=1,2 delims==" %%A in ("version.properties") do (
+    if /i "%%A"=="versionName" set "OLDNAME=%%B"
+)
+if not defined OLDNAME (
+    echo [ERROR] version.properties has no versionName line.
+    exit /b 1
+)
+call :checkversion "%OLDNAME%" "versionName in version.properties"
+if errorlevel 1 exit /b 1
+
+REM Anything that is not one of the three step words is taken as a literal
+REM version, and gets the same check before a build is based on it.
+set "EXPLICIT="
+if /i not "%STEP%"=="patch" if /i not "%STEP%"=="minor" if /i not "%STEP%"=="major" set "EXPLICIT=yes"
+if defined EXPLICIT (
+    call :checkversion "%STEP%" "The version you gave"
+    if errorlevel 1 exit /b 1
+)
+
+REM A step counts from the recorded version; an explicit X.Y.Z replaces it.
+set "BASE=%OLDNAME%"
+if defined EXPLICIT set "BASE=%STEP%"
+
+for /f "tokens=1,2,3 delims=." %%a in ("%BASE%") do (
     set "MAJOR=%%a"
     set "MINOR=%%b"
     set "PATCH=%%c"
 )
 
-REM Leading zeros would be read as octal by set /a, giving a wrong versionCode.
-for %%p in ("%MAJOR%" "%MINOR%" "%PATCH%") do (
-    echo %%~p| findstr /r /c:"^0[0-9]" >nul
-    if not errorlevel 1 (
-        echo [ERROR] Version parts must not have leading zeros ^(use 1.0.8, not 1.0.08^)
-        exit /b 1
-    )
+if /i "%STEP%"=="patch" set /a PATCH=PATCH+1
+if /i "%STEP%"=="minor" (
+    set /a MINOR=MINOR+1
+    set "PATCH=0"
+)
+if /i "%STEP%"=="major" (
+    set /a MAJOR=MAJOR+1
+    set "MINOR=0"
+    set "PATCH=0"
 )
 
+set "VERSION=%MAJOR%.%MINOR%.%PATCH%"
+
 if %MINOR% gtr 99 (
-    echo [ERROR] MINOR must be ^<= 99 to keep versionCode monotonic
+    echo [ERROR] MINOR must be ^<= 99 to keep versionCode monotonic ^(got %VERSION%^)
     exit /b 1
 )
 if %PATCH% gtr 99 (
-    echo [ERROR] PATCH must be ^<= 99 to keep versionCode monotonic
+    echo [ERROR] PATCH must be ^<= 99 to keep versionCode monotonic ^(got %VERSION%^)
     exit /b 1
 )
 
-REM Same formula the release workflow uses: 1.2.3 -> 10203
+REM Same formula the release workflow uses: 1.2.3 becomes 10203
 set /a VCODE=%MAJOR% * 10000 + %MINOR% * 100 + %PATCH%
+for /f "tokens=1,2,3 delims=." %%a in ("%OLDNAME%") do set /a OLDCODE=%%a * 10000 + %%b * 100 + %%c
 
 REM Output name is <app>-<versionName>-<versionCode>.apk so two builds can
 REM never land on the same filename. The app name is the project folder name,
@@ -116,7 +152,9 @@ REM has burned several minutes for nothing.
 if exist "%OUT%" (
     echo [ERROR] %OUT% already exists.
     echo         Refusing to overwrite it - that file may already be published.
-    echo         Use a new version, or delete it yourself first.
+    echo         Nothing was built: version.properties still says %OLDNAME%.
+    echo         Delete that file if it is stale, or ask for a different number
+    echo         with "run.bat release minor" or "run.bat release X.Y.Z".
     exit /b 1
 )
 
@@ -189,6 +227,17 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
+REM The build worked and the file is in dist\, so this number is spent now:
+REM record it for the next run to count from. Doing it here rather than before
+REM the build means a build that fails never eats a version. It only ever moves
+REM forward - rebuilding an older version by hand must not rewind the counter.
+if %VCODE% gtr %OLDCODE% (
+    call :writeversion %VERSION%
+    echo version.properties now records %VERSION%
+) else (
+    echo version.properties still records %OLDNAME% - it only moves forward.
+)
+
 REM Only now that the new APK is safely in place, retire the stale ones.
 REM /o-d lists newest first, so "skip=3" lands exactly on everything past
 REM the three most recent - no counter variable, so no delayed expansion.
@@ -226,4 +275,46 @@ echo   5. Publish release
 echo.
 echo Then pull to refresh in Obtainium.
 echo.
+goto :eof
+
+
+REM ============================================================
+REM  :checkversion <value> <what it is>
+REM  Rejects anything that is not MAJOR.MINOR.PATCH. Leading zeros are out
+REM  too: set /a reads 08 as octal, which would quietly produce the wrong
+REM  versionCode. A subroutine cannot stop the script, so it returns 1 and
+REM  every caller checks.
+REM ============================================================
+:checkversion
+echo %~1| findstr /r /c:"^[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*$" >nul
+if errorlevel 1 (
+    echo [ERROR] %~2 must be MAJOR.MINOR.PATCH, e.g. 1.0.0 ^(got "%~1"^)
+    exit /b 1
+)
+echo %~1| findstr /r /c:"^0[0-9]" /c:"\.0[0-9]" >nul
+if not errorlevel 1 (
+    echo [ERROR] %~2 must not have leading zeros ^(use 1.0.8, not 1.0.08^)
+    exit /b 1
+)
+exit /b 0
+
+
+REM ============================================================
+REM  :writeversion <version>
+REM  Rewrites version.properties whole. The comment is written out with it
+REM  rather than preserved, so there is nothing to parse back and nothing
+REM  that can drift.
+REM ============================================================
+:writeversion
+> "version.properties" (
+    echo # The version "run.bat release" counts from.
+    echo #
+    echo # It records the last version built here, and is rewritten after a successful
+    echo # release build - it is not something to edit by hand. "run.bat release" steps
+    echo # the patch of it; "run.bat release minor" and "major" step those instead.
+    echo #
+    echo # versionCode is not stored: both release paths derive it from the name as
+    echo # MAJOR*10000 + MINOR*100 + PATCH, so 1.2.3 becomes 10203.
+    echo versionName=%~1
+)
 goto :eof

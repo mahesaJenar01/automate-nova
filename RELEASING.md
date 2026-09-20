@@ -7,8 +7,8 @@ Obtainium watches the repo for new ones.
 There are two ways to produce that APK. They are interchangeable: both use the
 same signing key, so an install from one can be updated by the other.
 
-- **By hand** — `run.bat release X.Y.Z`, then drag the file onto the release
-  form. Needs a working Gradle on this machine.
+- **By hand** — `run.bat release`, then drag the file onto the release form.
+  Needs a working Gradle on this machine.
 - **In CI** — push a `vX.Y.Z` tag and GitHub Actions builds and publishes it.
 
 ## Why a dedicated signing key
@@ -59,6 +59,22 @@ monotonic as long as MINOR and PATCH each stay at or below 99. The numbers in
 `app/build.gradle.kts` are only fallbacks — both release paths inject the real
 ones via `-PversionName` / `-PversionCode`.
 
+You do not have to pick the number. `version.properties` records the last
+version built here, and `run.bat release` steps it:
+
+| Command | 1.2.3 becomes |
+| --- | --- |
+| `run.bat release` | `1.2.4` |
+| `run.bat release minor` | `1.3.0` |
+| `run.bat release major` | `2.0.0` |
+| `run.bat release 2.4.0` | `2.4.0` |
+
+`version.properties` is rewritten only once the APK is safely in `dist\`, so a
+build that fails never burns a number — the next run tries the same one again.
+It also only ever moves forward: rebuilding an older version by hand leaves the
+recorded number where it was. It is a tracked file, so commit it along with the
+release.
+
 Always tag the release `v<version>` so the tag Obtainium reads matches the
 `versionName` inside the APK.
 
@@ -67,29 +83,32 @@ Always tag the release `v<version>` so the tag Obtainium reads matches the
 Commit everything you want in the build first — then:
 
 ```cmd
-run.bat release 1.0.0
+run.bat release
 ```
 
-This builds a signed release APK, checks it is *not* debug-signed, and writes
-it to `dist\automate-nova-1.0.0.apk`. It never touches your device, so no cable
-and no ADB.
+This works out the version, builds a signed release APK, checks it is *not*
+debug-signed, writes it to `dist\automate-nova-<version>-<versionCode>.apk`,
+and records the version it used. It never touches your device, so no cable and
+no ADB.
 
-Then:
+Read the version off the last lines it prints — the rest assumes it said
+`1.0.3`. Then:
 
 1. Open <https://github.com/mahesaJenar01/automate-nova/releases/new>
-2. **Choose a tag** → type `v1.0.0` → **Create new tag: v1.0.0 on publish**
-3. Title `v1.0.0`, and click **Generate release notes** if you want a changelog
-4. Drag `dist\automate-nova-1.0.0.apk` onto *"Attach binaries by dropping them
-   here or selecting them"* and wait for the upload to finish
+2. **Choose a tag** → type `v1.0.3` → **Create new tag: v1.0.3 on publish**
+3. Title `v1.0.3`, and click **Generate release notes** if you want a changelog
+4. Drag `dist\automate-nova-1.0.3-10003.apk` onto *"Attach binaries by dropping
+   them here or selecting them"* and wait for the upload to finish
 5. **Publish release**
 
 Then pull to refresh in Obtainium.
 
 Publishing that way also creates the tag, which starts the **Release APK**
-workflow. It will notice the release already carries
-`automate-nova-1.0.0.apk` and leave your upload alone, so the two paths do not
-fight. (If you have not added the signing secrets, that run simply fails and
-can be ignored — your release is already published.)
+workflow. It rebuilds from the tag and uploads `automate-nova-1.0.3.apk`
+alongside yours — same key, same version, different filename because the CI
+path does not put the versionCode in the name. (If you have not added the
+signing secrets, that run simply fails and can be ignored — your release is
+already published.)
 
 ## Releasing from CI instead
 
