@@ -5,12 +5,59 @@ REM Work from the project root no matter where this was invoked from.
 REM setlocal restores the caller's directory on exit.
 cd /d "%~dp0"
 
+REM A moved or removed JDK leaves JAVA_HOME stale and makes the Gradle wrapper
+REM stop before it can select the project's Java 21 toolchain. Recover from the
+REM Java executable on PATH instead of asking the user to repair it by hand.
+call :ensurejava
+if errorlevel 1 exit /b 1
+
 if /i "%~1"=="release" goto :release
 
+REM The phone normally has a release-signed copy (from dist/Obtainium). Installing
+REM a debug-signed APK over it causes INSTALL_FAILED_UPDATE_INCOMPATIBLE, so the
+REM cable workflow deliberately uses the same release key and recorded version.
+if not exist "keystore.properties" (
+    echo [ERROR] keystore.properties not found.
+    echo         A debug-signed build cannot update the release-signed app.
+    echo         Restore the signing files described in RELEASING.md.
+    exit /b 1
+)
+if not exist "version.properties" (
+    echo [ERROR] version.properties not found.
+    exit /b 1
+)
+
+set "INSTALL_VERSION="
+for /f "usebackq eol=# tokens=1,2 delims==" %%A in ("version.properties") do (
+    if /i "%%A"=="versionName" set "INSTALL_VERSION=%%B"
+)
+if not defined INSTALL_VERSION (
+    echo [ERROR] version.properties has no versionName line.
+    exit /b 1
+)
+call :checkversion "%INSTALL_VERSION%" "versionName in version.properties"
+if errorlevel 1 exit /b 1
+
+for /f "tokens=1,2,3 delims=." %%a in ("%INSTALL_VERSION%") do (
+    set "INSTALL_MAJOR=%%a"
+    set "INSTALL_MINOR=%%b"
+    set "INSTALL_PATCH=%%c"
+)
+if %INSTALL_MINOR% gtr 99 (
+    echo [ERROR] MINOR must be ^<= 99 ^(got %INSTALL_VERSION%^)
+    exit /b 1
+)
+if %INSTALL_PATCH% gtr 99 (
+    echo [ERROR] PATCH must be ^<= 99 ^(got %INSTALL_VERSION%^)
+    exit /b 1
+)
+set /a INSTALL_VCODE=%INSTALL_MAJOR% * 10000 + %INSTALL_MINOR% * 100 + %INSTALL_PATCH%
+
 echo ===================================
-echo 1. Building the App (Debug)
+echo 1. Building the signed App
+echo    version %INSTALL_VERSION%  (versionCode %INSTALL_VCODE%)
 echo ===================================
-call "%~dp0gradlew.bat" assembleDebug
+call "%~dp0gradlew.bat" assembleRelease -PversionName=%INSTALL_VERSION% -PversionCode=%INSTALL_VCODE%
 if %errorlevel% neq 0 (
     echo [ERROR] Build failed!
     exit /b %errorlevel%
@@ -21,10 +68,20 @@ echo ===================================
 echo 2. Installing the App
 echo ===================================
 echo Installing/Updating the App...
-adb install -r app\build\outputs\apk\debug\app-debug.apk
-if %errorlevel% neq 0 (
-    echo [ERROR] Installation failed! Make sure your device is connected.
-    exit /b %errorlevel%
+adb install -r app\build\outputs\apk\release\app-release.apk
+set "INSTALL_ERROR=%errorlevel%"
+if not "%INSTALL_ERROR%"=="0" (
+    echo.
+    echo [ERROR] Installation failed.
+    echo.
+    echo If Android reports a package conflict, the installed copy was signed
+    echo with the old debug key. Android cannot change an app's signing key.
+    echo To migrate once: export a backup from "Cadangan Data", uninstall
+    echo Automate Nova, run this script again, then import the backup.
+    echo.
+    echo If Android reports a version downgrade, create the next version with:
+    echo     run.bat release
+    exit /b %INSTALL_ERROR%
 )
 
 echo.
@@ -276,6 +333,31 @@ echo.
 echo Then pull to refresh in Obtainium.
 echo.
 goto :eof
+
+
+REM ============================================================
+REM  :ensurejava
+REM  Keeps a valid JAVA_HOME, or derives one from the first java.exe on PATH.
+REM ============================================================
+:ensurejava
+if exist "%JAVA_HOME%\bin\java.exe" exit /b 0
+
+set "FOUND_JAVA="
+for /f "delims=" %%J in ('where java.exe 2^>nul') do if not defined FOUND_JAVA set "FOUND_JAVA=%%J"
+if not defined FOUND_JAVA (
+    echo [ERROR] No working Java installation was found.
+    echo         Install a JDK or add java.exe to PATH.
+    exit /b 1
+)
+
+for %%D in ("%FOUND_JAVA%\..") do set "JAVA_BIN=%%~fD"
+for %%D in ("%JAVA_BIN%\..") do set "JAVA_HOME=%%~fD"
+if not exist "%JAVA_HOME%\bin\java.exe" (
+    echo [ERROR] Could not determine JAVA_HOME from %FOUND_JAVA%
+    exit /b 1
+)
+echo Using Java from %JAVA_HOME%
+exit /b 0
 
 
 REM ============================================================

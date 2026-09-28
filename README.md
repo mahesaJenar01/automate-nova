@@ -32,10 +32,15 @@ onto a new GitHub Release tagged `v<that version>`.
    run.bat
    ```
    This script will:
-   - Build the APK via Gradle.
-   - Uninstall any previous versions of the app (if any).
-   - Install the new APK to an attached ADB device.
+   - Build the APK with the permanent release signing key and the version in
+     `version.properties`.
+   - Update the existing app without removing its data.
    - Restart the accessibility service and stream logs.
+
+   If the phone still has an older debug-signed copy, Android requires a
+   one-time migration: export from **Cadangan Data**, uninstall Automate Nova,
+   run `run.bat`, and import the backup. Every later signed build can update in
+   place.
 
 2. **Enable Accessibility**
    To let this app interact with your device, you must enable its Accessibility Service in your Android settings (or let `run.bat` auto-enable it if your device supports secure setting modifications via ADB).
