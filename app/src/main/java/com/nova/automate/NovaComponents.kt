@@ -48,7 +48,15 @@ fun NovaScreen(content: @Composable ColumnScope.() -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        MaterialTheme.colorScheme.background,
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.16f),
+                        MaterialTheme.colorScheme.background
+                    )
+                )
+            )
     ) {
         Column(
             modifier = Modifier
@@ -104,7 +112,7 @@ fun NovaHeader(
     }
 }
 
-/** Flat white card with a hairline border — reads cleaner than drop shadows on a tinted page. */
+/** Soft surface card with a hairline border and just enough lift from the warm page. */
 @Composable
 fun NovaCard(
     modifier: Modifier = Modifier,
@@ -135,7 +143,7 @@ fun NovaCard(
         },
         shape = shape,
         colors = CardDefaults.cardColors(containerColor = containerColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         border = BorderStroke(1.dp, borderColor),
         content = content
     )

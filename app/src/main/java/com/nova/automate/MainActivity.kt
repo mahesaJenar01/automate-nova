@@ -41,6 +41,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Share
@@ -65,6 +66,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -473,6 +475,12 @@ fun MainScreen(
                 }
             }
 
+            Spacer(modifier = Modifier.height(28.dp))
+
+            Reveal(delayMillis = 280) {
+                LoveNoteCard()
+            }
+
             Spacer(modifier = Modifier.height(24.dp))
         }
 
@@ -481,6 +489,47 @@ fun MainScreen(
                 active = isServiceEnabled,
                 label = if (isServiceEnabled) "Accessibility service aktif"
                 else "Accessibility service belum aktif"
+            )
+        }
+    }
+}
+
+@Composable
+private fun LoveNoteCard() {
+    NovaCard(
+        modifier = Modifier.fillMaxWidth(),
+        containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.72f),
+        borderColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.22f)
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconBadge(
+                    icon = Icons.Default.Favorite,
+                    container = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.primary,
+                    size = 40.dp
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = "Untuk kamu",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                    )
+                    Text(
+                        text = "A little note from me",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.72f)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = stringResource(R.string.love_note),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onTertiaryContainer
             )
         }
     }

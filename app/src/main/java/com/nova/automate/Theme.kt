@@ -19,80 +19,80 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * A single indigo-led palette so every screen shares the same visual language:
- * indigo for actions, teal for "done / confirmed", amber for "needs your attention".
+ * A warm, quiet palette inspired by the launcher photo: dusty rose for the
+ * personal touches, leafy sage for successful states, and soft cream surfaces.
  */
 private val NovaLightColors = lightColorScheme(
-    primary = Color(0xFF4F46E5),
+    primary = Color(0xFFA04460),
     onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFE4E3FD),
-    onPrimaryContainer = Color(0xFF1B1464),
+    primaryContainer = Color(0xFFFFD9E2),
+    onPrimaryContainer = Color(0xFF3F071D),
 
-    secondary = Color(0xFF0E7C6B),
+    secondary = Color(0xFF536A52),
     onSecondary = Color(0xFFFFFFFF),
-    secondaryContainer = Color(0xFFC8F2E8),
-    onSecondaryContainer = Color(0xFF00382F),
+    secondaryContainer = Color(0xFFD5E8D2),
+    onSecondaryContainer = Color(0xFF122112),
 
-    tertiary = Color(0xFF9A5B00),
+    tertiary = Color(0xFF8A5944),
     onTertiary = Color(0xFFFFFFFF),
-    tertiaryContainer = Color(0xFFFDECC8),
-    onTertiaryContainer = Color(0xFF5C3300),
+    tertiaryContainer = Color(0xFFFFDCCD),
+    onTertiaryContainer = Color(0xFF351006),
 
-    background = Color(0xFFF6F6FB),
-    onBackground = Color(0xFF16151C),
-    surface = Color(0xFFFFFFFF),
-    onSurface = Color(0xFF16151C),
-    surfaceVariant = Color(0xFFECEBF3),
-    onSurfaceVariant = Color(0xFF514F5B),
+    background = Color(0xFFFFF8F7),
+    onBackground = Color(0xFF28191D),
+    surface = Color(0xFFFFFBFA),
+    onSurface = Color(0xFF28191D),
+    surfaceVariant = Color(0xFFF4E7EA),
+    onSurfaceVariant = Color(0xFF625156),
 
-    outline = Color(0xFF8A879A),
-    outlineVariant = Color(0xFFDCDAE6),
+    outline = Color(0xFF92747D),
+    outlineVariant = Color(0xFFE7D3D8),
 
     error = Color(0xFFBA1A1A),
     onError = Color(0xFFFFFFFF),
     errorContainer = Color(0xFFFFDAD6),
     onErrorContainer = Color(0xFF410002),
 
-    inverseSurface = Color(0xFF2F2E37),
-    inverseOnSurface = Color(0xFFF4F0F7),
-    inversePrimary = Color(0xFFC0BDFF)
+    inverseSurface = Color(0xFF3B2D31),
+    inverseOnSurface = Color(0xFFFFEDEF),
+    inversePrimary = Color(0xFFFFB1C5)
 )
 
 /** The same language after dark: identical hues, roles flipped for a dim room. */
 private val NovaDarkColors = darkColorScheme(
-    primary = Color(0xFFC0BDFF),
-    onPrimary = Color(0xFF251C7A),
-    primaryContainer = Color(0xFF3A32A0),
-    onPrimaryContainer = Color(0xFFE4E3FD),
+    primary = Color(0xFFFFB1C5),
+    onPrimary = Color(0xFF5E1131),
+    primaryContainer = Color(0xFF7F2947),
+    onPrimaryContainer = Color(0xFFFFD9E2),
 
-    secondary = Color(0xFF83DBC8),
-    onSecondary = Color(0xFF00382F),
-    secondaryContainer = Color(0xFF005143),
-    onSecondaryContainer = Color(0xFFC8F2E8),
+    secondary = Color(0xFFB9CCB5),
+    onSecondary = Color(0xFF263426),
+    secondaryContainer = Color(0xFF3C503C),
+    onSecondaryContainer = Color(0xFFD5E8D2),
 
-    tertiary = Color(0xFFF3C06E),
-    onTertiary = Color(0xFF452B00),
-    tertiaryContainer = Color(0xFF6A4100),
-    onTertiaryContainer = Color(0xFFFDECC8),
+    tertiary = Color(0xFFF0B9A0),
+    onTertiary = Color(0xFF512B1A),
+    tertiaryContainer = Color(0xFF6D402E),
+    onTertiaryContainer = Color(0xFFFFDCCD),
 
-    background = Color(0xFF121118),
-    onBackground = Color(0xFFE7E4F0),
-    surface = Color(0xFF1B1A23),
-    onSurface = Color(0xFFE7E4F0),
-    surfaceVariant = Color(0xFF2B2934),
-    onSurfaceVariant = Color(0xFFC5C2D2),
+    background = Color(0xFF1B1215),
+    onBackground = Color(0xFFF3DEE3),
+    surface = Color(0xFF24191C),
+    onSurface = Color(0xFFF3DEE3),
+    surfaceVariant = Color(0xFF3A2C31),
+    onSurfaceVariant = Color(0xFFD5C0C6),
 
-    outline = Color(0xFF918EA1),
-    outlineVariant = Color(0xFF383544),
+    outline = Color(0xFFA68A92),
+    outlineVariant = Color(0xFF4D3A40),
 
     error = Color(0xFFFFB4AB),
     onError = Color(0xFF690005),
     errorContainer = Color(0xFF93000A),
     onErrorContainer = Color(0xFFFFDAD6),
 
-    inverseSurface = Color(0xFFE7E4F0),
-    inverseOnSurface = Color(0xFF2F2E37),
-    inversePrimary = Color(0xFF4F46E5)
+    inverseSurface = Color(0xFFF3DEE3),
+    inverseOnSurface = Color(0xFF3B2D31),
+    inversePrimary = Color(0xFFA04460)
 )
 
 /**
@@ -111,23 +111,23 @@ data class NovaAccents(
 )
 
 private val LightAccents = NovaAccents(
-    heroStart = Color(0xFF4F46E5),
-    heroEnd = Color(0xFF7C5CE0),
+    heroStart = Color(0xFF8E3D58),
+    heroEnd = Color(0xFFC06B76),
     onHero = Color(0xFFFFFFFF),
-    onHeroMuted = Color(0xCCE6E4FF),
-    chartBar = Color(0xFF6D63EA),
-    chartTrack = Color(0xFFE4E3FD),
-    positive = Color(0xFF0E7C6B)
+    onHeroMuted = Color(0xE6FFE7EC),
+    chartBar = Color(0xFFAD5870),
+    chartTrack = Color(0xFFFFE1E7),
+    positive = Color(0xFF4F7358)
 )
 
 private val DarkAccents = NovaAccents(
-    heroStart = Color(0xFF3A32A0),
-    heroEnd = Color(0xFF5B41A8),
-    onHero = Color(0xFFF2F0FF),
-    onHeroMuted = Color(0xCCC7C2EE),
-    chartBar = Color(0xFF9C94F5),
-    chartTrack = Color(0xFF2F2C45),
-    positive = Color(0xFF83DBC8)
+    heroStart = Color(0xFF6D2742),
+    heroEnd = Color(0xFF9C5360),
+    onHero = Color(0xFFFFF4F6),
+    onHeroMuted = Color(0xE6FFD8E1),
+    chartBar = Color(0xFFFF9FB7),
+    chartTrack = Color(0xFF4D3039),
+    positive = Color(0xFFB9CCB5)
 )
 
 private val LocalNovaAccents = staticCompositionLocalOf { LightAccents }
@@ -137,11 +137,11 @@ val MaterialTheme.accents: NovaAccents
     @Composable @ReadOnlyComposable get() = LocalNovaAccents.current
 
 private val NovaShapes = Shapes(
-    extraSmall = RoundedCornerShape(8.dp),
-    small = RoundedCornerShape(12.dp),
-    medium = RoundedCornerShape(18.dp),
-    large = RoundedCornerShape(24.dp),
-    extraLarge = RoundedCornerShape(28.dp)
+    extraSmall = RoundedCornerShape(10.dp),
+    small = RoundedCornerShape(14.dp),
+    medium = RoundedCornerShape(20.dp),
+    large = RoundedCornerShape(28.dp),
+    extraLarge = RoundedCornerShape(32.dp)
 )
 
 /** Tighter tracking and heavier titles — the default Material scale reads a bit flat here. */
